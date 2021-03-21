@@ -4,6 +4,7 @@
 # Whitelist some files
 !.gitignore
 !README.md
+!environment.yml
 
 # Track code but not ipython checkpoints
 !code/
