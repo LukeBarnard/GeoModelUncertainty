@@ -1,0 +1,29 @@
+# Blacklist files/folders in same directory as the .gitignore file
+/*
+
+# Whitelist some files
+!.gitignore
+!README.md
+
+# Track code but not ipython checkpoints
+!code/
+code/ipynb_checkpoints/
+
+# Track the figure and data dirs, but not all files.
+
+!figures/
+#figures/*
+
+#!figures/HUXt_figures
+#figures/HUXt_figures/*
+
+!data/
+
+#!data/boundary_conditions
+#data/boundary_conditions/*
+
+#!data/HUXt_data
+#data/HUXt_data/*
+
+#!data/out_data
+#data/out_data/*
