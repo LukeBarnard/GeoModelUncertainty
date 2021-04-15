@@ -1203,19 +1203,20 @@ def plot_error_series_and_distribution():
 
         # Update line colors according to integrated error
         sum_err = np.array(sum_err)
-        cmap = mpl.cm.viridis
         if err_type == 'mean_abs':
             e_min = 0
             e_max = sum_err.max()
             norm = mpl.colors.Normalize(vmin=e_min, vmax=e_max)
+            cmap = mpl.cm.viridis
             for h, err in zip(lines, sum_err):
                 h.set_color(cmap(norm(err)))
         elif err_type == 'mean':
-            err = np.abs(sum_err)
-            e_min = 0
-            e_max = err.max()
-            norm = mpl.colors.Normalize(vmin=e_min, vmax=e_max)
-            for h, e in zip(lines, err):
+            e_min = sum_err.min()
+            e_max = sum_err.max()
+            e_supermax = np.max([np.abs(e_min), e_max])
+            norm = mpl.colors.Normalize(vmin=-e_supermax, vmax=e_supermax)
+            cmap = mpl.cm.PiYG
+            for h, e in zip(lines, sum_err):
                 h.set_color(cmap(norm(e)))
 
         #ax[0].set_xlim(0.15, 0.65)
@@ -1375,9 +1376,9 @@ if __name__ == "__main__":
     
     #build_cme_scenarios()
     #produce_huxt_ensemble(n=100)
-    plot_kinematics_example_multi_observer()
-    plot_kinematic_example_multi_model()
-    plot_kinematics_subset()
+    #plot_kinematics_example_multi_observer()
+    #plot_kinematic_example_multi_model()
+    #plot_kinematics_subset()
     plot_error_series_and_distribution()
-    plot_error_vs_longitude()
+    #plot_error_vs_longitude()
     
