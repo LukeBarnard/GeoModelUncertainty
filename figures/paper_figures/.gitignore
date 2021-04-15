@@ -2,5 +2,3 @@
 *
 # Whitelist some files
 !.gitignore
-!HUXt_figures
-!paper_figures
