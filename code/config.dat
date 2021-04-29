@@ -6,3 +6,6 @@ paper_figures,figures\paper_figures
 HUXt_figures,figures\HUXt_figures
 out_data,data\out_data
 HELCATS_data,data\KINCAT_WP3_V02.txt
+ELEvoHI_average,data\ELEvoHI\ELEvoHI_average.txt
+ELEvoHI_fast,data\ELEvoHI\ELEvoHI_fast.txt
+ELEvoHI_extreme,data\ELEvoHI\ELEvoHI_extreme.txt

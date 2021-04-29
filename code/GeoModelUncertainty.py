@@ -277,6 +277,105 @@ class Observer:
         geomod[elp_keys] = geomod[elp_keys].astype(np.float64)
         return geomod
     
+def fixed_phi(cme, r_obs, lon_obs, el):
+    """
+    Return the FP point for a specified, CME, observer location, and elongation.
+    """    
+    pi = np.pi*u.rad
+    piby2 = pi/2.0
+    beta = lon_obs - cme.longitude
+    if beta > pi:
+        beta = 2*pi - beta
+
+    psi = pi - beta - el
+    r_apex = r_obs*np.sin(el) / np.sin(psi)
+    lon_apex = cme.longitude.copy()
+    return lon_apex, r_apex
+
+
+def harmonic_mean(cme, r_obs, lon_obs, el):
+    """
+    Return the HM circle parameters for the HM model for a specified, CME, observer location, and elongation.
+    """ 
+    pi = np.pi*u.rad
+    piby2 = pi/2.0
+    beta = lon_obs - cme.longitude
+    if beta > pi:
+        beta = 2*pi - beta
+
+    psi = pi - beta - el
+    r_apex = 2*r_obs*np.sin(el) / (np.sin(psi) + 1)
+
+    # Calc radius and center, special case of sse, Eq4 Moestl2012
+    radius = r_apex / 2.0
+    r_center = r_apex - radius
+    lon_apex = cme.longitude.copy()
+    return lon_apex, r_apex, r_center, radius
+
+
+def self_similar_expansion(cme, r_obs, lon_obs, el):
+    """
+    Return the SSE circle parameters for the SSE model for a specified, CME, observer location, and elongation.
+    """
+    pi = np.pi*u.rad
+    piby2 = pi/2.0
+    half_width = cme.width / 2.0
+    beta = lon_obs - cme.longitude
+    if beta > pi:
+        beta = 2*pi - beta
+
+    psi = pi - beta - el
+    top = r_obs * np.sin(el) * (1 + np.sin(half_width))
+    bottom = (np.sin(psi) + np.sin(half_width))
+    r_apex = top / bottom
+
+    # Calc radius from apex distance and halfwidth. Eq 4 of Moestl2012
+    radius = r_apex * np.sin(half_width) / (1 + np.sin(half_width))
+    # Calc SSE center
+    r_center = r_apex - radius
+    lon_apex = cme.longitude.copy()
+    return lon_apex, r_apex, r_center, radius
+
+
+def elcon(cme, r_obs, lon_obs, el):
+    """
+    Return the ElCon elipse parameters for the ElCon model for a specified, CME, observer location, and elongation.
+    """
+    pi = np.pi*u.rad
+    piby2 = pi/2.0
+    f = 0.7
+    half_width = cme.width / 2.0
+    beta = lon_obs - cme.longitude
+    if beta > pi:
+        beta = 2*pi - beta
+
+    omega = pi - el - beta
+    # Make sure omega is <90.0, otherwise outside angle has been specified.
+    omega[omega > piby2] = pi - omega[omega > piby2]
+
+    phi = np.arctan((f**2) * np.tan(omega))
+    theta = np.arctan((f**2) * np.tan(half_width))
+
+    o_phi = np.sqrt(((f*np.cos(phi))**2 + (np.sin(phi))**2))
+    o_theta = np.sqrt(((f*np.cos(theta))**2 + (np.sin(theta))**2))
+
+    top = r_obs * np.sin(el) * np.sin(half_width) * o_phi * o_theta
+
+    psi = piby2 + theta - half_width
+    term1 = np.sin(psi)*np.sin(omega)*o_phi
+    zeta = piby2 + phi - omega
+    term2 = np.sin(zeta)*np.sin(half_width)*o_theta
+    bottom = term1 + term2
+
+    r_b = top / bottom
+    r_a = r_b / f
+    r_half_width = r_b / o_theta
+
+    r_center = r_half_width * np.sin(psi) / np.sin(half_width)
+    r_apex = r_center + r_b
+    lon_apex = cme.longitude.copy()
+    return lon_apex, r_apex, r_center, r_a, r_b
+
 
 def get_project_dirs():
     """
@@ -1371,14 +1470,151 @@ def plot_error_vs_longitude():
     data.close()
     return
 
+def plot_elevohi_error_violins():
 
-if __name__ == "__main__":
+    project_dirs = get_project_dirs()
+    data_avg = pd.read_csv(project_dirs['ELEvoHI_average'], delim_whitespace=True)
+    data_fst = pd.read_csv(project_dirs['ELEvoHI_fast'], delim_whitespace=True)
+    data_ext = pd.read_csv(project_dirs['ELEvoHI_extreme'], delim_whitespace=True)
+
+    observer_lons = np.sort(data_avg['sep'].unique())
+
+    labels = ['Average', 'Fast', 'Extreme']
+    colors = [mpl.cm.tab10.colors[i] for i in range(len(labels))]
+    color_dict = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(labels)}
+
+
+    fig, ax = plt.subplots(3, 2, figsize=(12,10))
+    axr = ax.ravel()
+    axlft = ax[:, 0]
+    axrgt = ax[:, 1]
+
+    mae_handles = []
+    me_handles = []
+    for i, data in enumerate([data_avg, data_fst, data_ext]):
+
+        mae_data = []
+        me_data = []
+
+        for ol in observer_lons:
+
+            id_obs = data['sep'] == ol
+            mae_data.append(data.loc[id_obs, 'mae_t'])
+            me_data.append(data.loc[id_obs, 'me_t'])
+
+
+        h = axlft[i].violinplot(mae_data, positions=observer_lons, widths=5, showmeans=True)
+        mae_handles.append(h)
+
+        h = axrgt[i].violinplot(me_data, positions=observer_lons, widths=5, showmeans=True)
+        me_handles.append(h)
+
+    for a in axr:
+        a.set_xlim(261, 359)    
+        a.tick_params(direction='in')
+
+    for a, h, label in zip(axlft, mae_handles, ['Average', 'Fast', 'Extreme']):
+        a.set_ylim(0, 38)
+        a.set_ylabel('MAE (hours)')
+        a.text(0.99, 0.9, label, horizontalalignment='right', transform=a.transAxes, fontsize=18)
+
+        # Color the violins
+        for pc in h['bodies']:
+            pc.set_facecolor(color_dict[label])
+            pc.set_edgecolor('black')
+
+        for partname in ('cbars','cmins','cmaxes','cmeans'):
+            vp = h[partname]
+            vp.set_edgecolor(color_dict[label])
+
+    for a, h, label in zip(axrgt, me_handles, ['Average', 'Fast', 'Extreme']):
+        a.set_ylim(-38, 20)
+        a.set_ylabel('ME (hours)')
+        a.yaxis.tick_right()
+        a.yaxis.set_label_position('right')
+        a.text(0.01, 0.9, label, horizontalalignment='left', transform=a.transAxes, fontsize=18)
+
+        # Color the violins
+        for pc in h['bodies']:
+            pc.set_facecolor(color_dict[label])
+            pc.set_edgecolor('black')
+
+        for partname in ('cbars','cmins','cmaxes','cmeans'):
+            vp = h[partname]
+            vp.set_edgecolor(color_dict[label])
+
+
+    for a in ax[0:2, :].ravel():
+        a.set_xticklabels([])
+
+    ax[2, 0].set_xlabel('Observer HEE Longitude')
+    ax[2, 1].set_xlabel('Observer HEE Longitude')
+
+    fig.subplots_adjust(left=0.06, bottom=0.06, right=0.93, top=0.98, hspace=0.02, wspace=0.015)
+    fig_name = 'mae_me_violins_vs_lon.pdf'
+    fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
+    fig.savefig(fig_path)
+    return
+    
+
+def plot_elevohi_mean_errors():
+        
+    project_dirs = get_project_dirs()
+    data_avg = pd.read_csv(project_dirs['ELEvoHI_average'], delim_whitespace=True)
+    data_fst = pd.read_csv(project_dirs['ELEvoHI_fast'], delim_whitespace=True)
+    data_ext = pd.read_csv(project_dirs['ELEvoHI_extreme'], delim_whitespace=True)
+
+    fig, ax = plt.subplots(1, 2, figsize=(14,7))
+    labels = ['Average', 'Fast', 'Extreme']
+    colors = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(labels)}
+    fmt = ['s-', 'x--', '^:']
+    for c, data in enumerate([data_avg, data_fst, data_ext]):
+
+
+        observer_lons = np.sort(data['sep'].unique())
+
+        mae = np.zeros(observer_lons.shape)
+        mae_sem = np.zeros(observer_lons.shape)
+        me = np.zeros(observer_lons.shape)
+        me_sem = np.zeros(observer_lons.shape)
+        for i, ol in enumerate(observer_lons):
+
+            id_obs = data['sep'] == ol
+            me[i] = data.loc[id_obs, 'me_t'].mean()
+            me_sem[i] = 2*data.loc[id_obs, 'me_t'].sem()
+            mae[i] = data.loc[id_obs, 'mae_t'].mean()
+            mae_sem[i] = 2*data.loc[id_obs, 'mae_t'].sem()
+
+
+        ax[0].errorbar(observer_lons, mae, yerr=mae_sem, fmt=fmt[c], color=colors[labels[c]], label=labels[c])
+        ax[1].errorbar(observer_lons, me, yerr=me_sem, fmt=fmt[c], color=colors[labels[c]], label=labels[c])
+
+    for a in ax:
+        a.set_xlim(265, 355)
+        a.set_xlabel('Observer longitude (deg)')
+        a.legend(loc='upper center')
+        a.tick_params(direction='in')
+
+    ax[0].set_ylabel('Mean absolute arrival time error')
+
+    ax[1].yaxis.tick_right()
+    ax[1].yaxis.set_label_position('right')
+    ax[1].set_ylabel('Mean arrival time error')
+
+    fig.subplots_adjust(left=0.05, bottom=0.1, right=0.93, top=0.99, wspace=0.01)
+    fig_name = 'mean_err_vs_lon.pdf'
+    fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
+    fig.savefig(fig_path)
+    return
+
+#if __name__ == "__main__":
     
     #build_cme_scenarios()
     #produce_huxt_ensemble(n=100)
     #plot_kinematics_example_multi_observer()
     #plot_kinematic_example_multi_model()
     #plot_kinematics_subset()
-    plot_error_series_and_distribution()
+    #plot_error_series_and_distribution()
     #plot_error_vs_longitude()
-    
+    #plot_elevohi_error_violins()
+    #plot_elevohi_mean_errors()
