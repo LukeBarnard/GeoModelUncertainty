@@ -611,11 +611,12 @@ def hdf5_save_apex_profile(parent_group, model, cme):
 
 def hdf5_save_solarwind_boundary_var(parent_group, model, cme):
     """
-    Compute the variability of the inner boundary speed at CME launch time.
+    Compute the variability of the solar wind solution across CME longitudes
+    and at all radii at timestep before CME launch, and save to the hdf5 output.
     """
     # Find launch index of CME, and get inner boundary V at 1 timestep prior to launch
     id_launch = np.argmin(np.abs(model.time_out - cme.t_launch))
-    v_bound = model.v_grid[id_launch-1, 0, :]
+    v_bound = model.v_grid[id_launch-1, :, :]
 
     # Compute v_bound variability over the CME longitudes
     # Center lons on CME, and put between -pi and pi
@@ -624,18 +625,14 @@ def hdf5_save_solarwind_boundary_var(parent_group, model, cme):
     lons[lons > np.pi*u.rad] = lons[lons > np.pi*u.rad] - 2*np.pi*u.rad
     id_sort = np.argsort(lons)
     lons = lons[id_sort]
-    v_bound = v_bound[id_sort]
+    v_bound = v_bound[:, id_sort]
 
     # Get standard deviation of inner boundary and also standard deviation only over CME longs
-    v_bound_std = np.std(v_bound)
     id_cme_lons = (lons >= (cme.longitude - cme.width/2.0)) & (lons <= (cme.longitude + cme.width/2.0))
-    v_bound_cme_std = np.std(v_bound[id_cme_lons])
+    v_bound_std = np.std(v_bound[:, id_cme_lons])
     
     # Save these data to the parent group
-    dset = parent_group.create_dataset('v_boundary_std', v_bound_std)
-    dset.attrs['unit'] = v_bound_std.unit.to_string()
-    
-    dset = parent_group.create_dataset('v_boundary_cme_std', v_bound_cme_std)
+    dset = parent_group.create_dataset('v_boundary_std', data=v_bound_cme_std)
     dset.attrs['unit'] = v_bound_cme_std.unit.to_string()
 
     return
