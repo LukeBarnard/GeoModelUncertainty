@@ -629,11 +629,26 @@ def hdf5_save_solarwind_boundary_var(parent_group, model, cme):
 
     # Get standard deviation of inner boundary and also standard deviation only over CME longs
     id_cme_lons = (lons >= (cme.longitude - cme.width/2.0)) & (lons <= (cme.longitude + cme.width/2.0))
-    v_bound_std = np.std(v_bound[:, id_cme_lons])
     
-    # Save these data to the parent group
-    dset = parent_group.create_dataset('v_boundary_std', data=v_bound_cme_std)
-    dset.attrs['unit'] = v_bound_cme_std.unit.to_string()
+    # Standard deviation in V over all domain
+    v_std = np.std(v_bound[:, id_cme_lons])
+    dset = parent_group.create_dataset('v_std', data=v_bound_std)
+    dset.attrs['unit'] = v_bound_std.unit.to_string()
+    
+    # Standard deviation in V over only the inner boundary
+    v_b_std = np.std(v_bound[0, id_cme_lons])
+    dset = parent_group.create_dataset('v_b_std', data=v_b_std)
+    dset.attrs['unit'] = v_bound_std.unit.to_string()
+    
+    # Standard deviation in longitudinal difference in V
+    dv_std = np.std(np.diff(v_bound[:, id_cme_lons], axis=1))
+    dset = parent_group.create_dataset('dv_std', data=dv_std)
+    dset.attrs['unit'] = dv_std.unit.to_string()
+    
+    # Standard deviation in longitudinal difference in V only over the inner boundary
+    dv_b_std = np.std(np.diff(v_bound[0, id_cme_lons]))
+    dset = parent_group.create_dataset('dv_b_std', data=dv_b_std)
+    dset.attrs['unit'] = dv_b_std.unit.to_string()
 
     return
 
@@ -1142,7 +1157,7 @@ def plot_kinematic_example_multi_model():
             axm[i].plot(t.to(u.d), r.to(u.solRad), 'k-', label='Apex')
             axb[i].plot(t.to(u.d), v, 'k-', label='Apex')
 
-            names = ['FP', 'HM', 'SSE', 'ELP']
+            names = ['FP', 'HM', 'SSE', 'ElCon']
             for j, obs in enumerate([l5obs.fp, l5obs.hm, l5obs.sse, l5obs.elp]):
                 t = obs['model_time'].values*u.s
                 r = obs['r_apex'].values*u.km
@@ -1214,6 +1229,7 @@ def plot_kinematics_subset():
     obs_keys  = ['Observer 350.00', 'Observer 310.00', 'Observer 270.00']
     gm_keys = ['fp', 'hm', 'sse', 'elp']
     gm_cols = {gk:Dark2_5.mpl_colors[i] for i, gk in enumerate(gm_keys)}
+    gm_labels = {'fp':'FP', 'hm':'HM', 'sse':'SSE', 'elp':'ElCon'}
 
     for i, gk in enumerate(gm_keys):
 
@@ -1263,7 +1279,7 @@ def plot_kinematics_subset():
 
     for a, gk in zip(ax[:, 0], gm_keys):
         label = gk.upper() + ' apex (Au)'
-        a.set_ylabel(label)
+        a.set_ylabel(gm_labels[gk])
 
     fig.subplots_adjust(left=0.085, bottom=0.05, right=0.99, top=0.99, wspace=0.015, hspace=0.015)
     
@@ -1286,6 +1302,8 @@ def plot_error_series_and_distribution():
     
     data_path = "C:/Users/yq904481/research/repos/GeoModelUncertainty/data/out_data/CME_scenarios_simulation_results.hdf5"
     data = h5py.File(data_path, 'r')
+    
+    gm_labels = {'fp':'FP', 'hm':'HM', 'sse':'SSE', 'elp':'ElCon'}
 
     for err_type in ['mean', 'mean_abs']:
 
@@ -1339,6 +1357,10 @@ def plot_error_series_and_distribution():
             cmap = mpl.cm.viridis
             for h, err in zip(lines, sum_err):
                 h.set_color(cmap(norm(err)))
+                
+            ylabel = "{} abs. apex error, $\eta _{{{}}}$, (Au)".format(gm_labels[gm], gm_labels[gm])
+            ax[0].set_ylabel(ylabel)
+
         elif err_type == 'mean':
             e_min = sum_err.min()
             e_max = sum_err.max()
@@ -1347,22 +1369,31 @@ def plot_error_series_and_distribution():
             cmap = mpl.cm.PiYG
             for h, e in zip(lines, sum_err):
                 h.set_color(cmap(norm(e)))
+            
+            ylabel = "{} apex error, $\epsilon _{{{}}}$, (Au)".format(gm_labels[gm], gm_labels[gm])
+            ax[0].set_ylabel(ylabel)
 
-        #ax[0].set_xlim(0.15, 0.65)
+
         ax[0].set_ylim(-0.1, 0.25)
         ax[0].set_xlabel('HUXt apex (Au)')
-        ax[0].set_ylabel(gm.upper() + ' apex error (Au)')
+        
+        
 
         # Add histogram to last panel
         bins = np.arange(-0.01, 0.02, 0.002)
         ax[1].hist(sum_err, bins, density=True, color='skyblue')
         # Add mean error
         avg_err = np.mean(sum_err)
-        ax[1].vlines(avg_err, 0, 400, colors='r', linestyles='--', linewidth=2, label='Mean error')
+        if err_type == 'mean_abs':
+            ax[1].vlines(avg_err, 0, 400, colors='r', linestyles='--', linewidth=2, label='$\\langle H_{{{}}} \\rangle$'.format(gm_labels[gm]))
+            ax[1].set_xlabel('Integrated {} abs. apex error, $H_{{{}}}$'.format(gm_labels[gm], gm_labels[gm]))    
+        elif err_type == 'mean':
+            ax[1].vlines(avg_err, 0, 400, colors='r', linestyles='--', linewidth=2, label='$\\langle E_{{{}}} \\rangle$'.format(gm_labels[gm]))
+            ax[1].set_xlabel('Integrated {} apex error, $E_{{{}}}$'.format(gm_labels[gm], gm_labels[gm]))
+        
         # Format axes
         ax[1].set_xlim(-0.0045, 0.019)
-        ax[1].set_ylim(0, 175)
-        ax[1].set_xlabel('Integrated {} apex error'.format(gm.upper()))    
+        ax[1].set_ylim(0, 175)        
         ax[1].set_ylabel('Density')    
         ax[1].yaxis.tick_right()
         ax[1].yaxis.set_label_position('right')
@@ -1380,7 +1411,11 @@ def plot_error_series_and_distribution():
         hi_cbaxes = fig.add_axes([left, bottom, wid, 0.02])
         smp = mpl.cm.ScalarMappable(norm=norm, cmap=cmap)
         cbar1 = fig.colorbar(smp, cax=hi_cbaxes, orientation='horizontal')
-        cbar1.ax.set_xlabel('Integrated {} apex error'.format(gm.upper()))
+        if err_type == 'mean_abs':
+            cbar1.ax.set_xlabel('Integrated {} abs. apex error, $H_{{{}}}$'.format(gm_labels[gm], gm_labels[gm]))    
+        elif err_type == 'mean':
+            cbar1.ax.set_xlabel('Integrated {} apex error, $E_{{{}}}$'.format(gm_labels[gm], gm_labels[gm]))
+            
         cbar1.ax.xaxis.tick_top()
         cbar1.ax.xaxis.set_label_position('top')
         
@@ -1411,6 +1446,7 @@ def plot_error_vs_longitude():
     gm_keys = ['fp', 'hm', 'sse', 'elp']
     gm_cols = {gk:Dark2_5.mpl_colors[i] for i, gk in enumerate(gm_keys)}
     gm_style = {'fp':'x-', 'hm':'s-', 'sse':'^-', 'elp':'d-' }
+    gm_labels = {'fp':'FP', 'hm':'HM', 'sse':'SSE', 'elp':'ElCon'}
     observer_lons = data['average/run_000/observer_lons'][()]
     observer_keys = ["Observer {:3.2f}".format(l) for l in observer_lons]
 
@@ -1462,13 +1498,11 @@ def plot_error_vs_longitude():
                 mean_unc[j, k] = 2*st.sem(sum_err)
                 mean_abs_unc[j, k] = 2*st.sem(sum_abs_err)
 
-            #ax[0, i].plot(observer_lons, mean_results[j, :], '-', color=gm_cols[gk], linewidth=2, label=gk.upper())
-            #ax[1, i].plot(observer_lons, mean_abs_results[j, :], '-', color=gm_cols[gk], linewidth=2, label=gk.upper())
-            ax[0, i].errorbar(observer_lons, mean_results[j, :], yerr=mean_unc[j, :], fmt=gm_style[gk], color=gm_cols[gk], linewidth=2, label=gk.upper())
-            ax[1, i].errorbar(observer_lons, mean_abs_results[j, :], yerr=mean_abs_unc[j, :], fmt=gm_style[gk], color=gm_cols[gk], linewidth=2, label=gk.upper())
+            ax[0, i].errorbar(observer_lons, mean_results[j, :], yerr=mean_unc[j, :], fmt=gm_style[gk], color=gm_cols[gk], linewidth=2, label=gm_labels[gk])
+            ax[1, i].errorbar(observer_lons, mean_abs_results[j, :], yerr=mean_abs_unc[j, :], fmt=gm_style[gk], color=gm_cols[gk], linewidth=2, label=gm_labels[gk])
 
-        ax[0, i].text(0.275, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[0, i].transAxes)
-        ax[1, i].text(0.275, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[1, i].transAxes)
+        ax[0, i].text(0.3, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[0, i].transAxes)
+        ax[1, i].text(0.3, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[1, i].transAxes)
 
     for a in ax.ravel():
         a.set_xlim(265, 355)
@@ -1486,8 +1520,8 @@ def plot_error_vs_longitude():
         a.set_ylim(-0.0, 0.11)
         a.set_xlabel('Observer Longitude (deg)')
 
-    ax[0, 0].set_ylabel('Mean error')
-    ax[1, 0].set_ylabel('Mean absolute error')
+    ax[0, 0].set_ylabel('Mean integrated error, $\\langle E \\rangle$')
+    ax[1, 0].set_ylabel('Mean integrated absolute error, $\\langle H \\rangle$')
 
     fig.subplots_adjust(left=0.07, bottom=0.065, right=0.99, top=0.99, wspace=0.02, hspace=0.02)    
     
@@ -1545,7 +1579,7 @@ def plot_elevohi_error_violins():
 
     for a, h, label in zip(axlft, mae_handles, ['Average', 'Fast', 'Extreme']):
         a.set_ylim(0, 38)
-        a.set_ylabel('MAE (hours)')
+        a.set_ylabel('$|\\Delta t_{eeh}|$ (hours)')
         a.text(0.99, 0.9, label, horizontalalignment='right', transform=a.transAxes, fontsize=18)
 
         # Color the violins
@@ -1559,7 +1593,7 @@ def plot_elevohi_error_violins():
 
     for a, h, label in zip(axrgt, me_handles, ['Average', 'Fast', 'Extreme']):
         a.set_ylim(-38, 20)
-        a.set_ylabel('ME (hours)')
+        a.set_ylabel('$\\Delta t_{eeh}$ (hours)')
         a.yaxis.tick_right()
         a.yaxis.set_label_position('right')
         a.text(0.01, 0.9, label, horizontalalignment='left', transform=a.transAxes, fontsize=18)
@@ -1625,11 +1659,11 @@ def plot_elevohi_mean_errors():
         a.legend(loc='upper center')
         a.tick_params(direction='in')
 
-    ax[0].set_ylabel('Mean absolute arrival time error')
+    ax[0].set_ylabel('Mean absolute arrival time error, $\\langle |\\Delta t_{eeh}| \\rangle _{bws}$, (hours)')
 
     ax[1].yaxis.tick_right()
     ax[1].yaxis.set_label_position('right')
-    ax[1].set_ylabel('Mean arrival time error')
+    ax[1].set_ylabel('Mean arrival time error, $\\langle \\Delta t_{eeh} \\rangle _{bws}$, (hours)')
 
     fig.subplots_adjust(left=0.05, bottom=0.1, right=0.93, top=0.99, wspace=0.01)
     fig_name = 'mean_err_vs_lon.pdf'
@@ -1682,6 +1716,11 @@ def get_observer_los(ro, lo, el):
 
 
 def plot_geomodel_schematic():
+    """
+    Figure 1 of the article showing a schematic of the different classes of 
+    geometric model for each CME scenario.
+    """
+    
     cme_scenarios = load_cme_scenarios()
 
     gm_keys = ['fp', 'hm', 'sse', 'elp']
@@ -1702,7 +1741,7 @@ def plot_geomodel_schematic():
         cr_num = np.fix(sn.carrington_rotation_number(start_time))
 
         model = H.HUXt(v_boundary=vr_in, cr_num=cr_num, cr_lon_init=ert.lon_c, latitude=ert.lat.to(u.deg),
-                       lon_start=300*u.deg, lon_stop=60*u.deg, simtime=5*u.day, dt_scale=1)
+                       lon_start=300*u.deg, lon_stop=60*u.deg, simtime=3*u.day, dt_scale=1)
 
         t_launch = (1*u.hr).to(u.s)
         cme = H.ConeCME(t_launch=t_launch, longitude=0*u.deg, latitude=model.latitude.to(u.deg),
@@ -1754,6 +1793,7 @@ def plot_geomodel_schematic():
                                        linewidth=3, linestyle=gm_style['elp'], zorder=2, transform=ax[i].transData._b)
         ax[i].add_artist(elp_elip)
 
+
     for a, lab in zip(ax, ['Average', 'Fast', 'Extreme']):
         a.set_xlim(-np.pi/2, np.pi/2)
         a.set_ylim(0, 240)
@@ -1769,13 +1809,39 @@ def plot_geomodel_schematic():
 
         a.legend(loc='lower left', bbox_to_anchor=(0.525, 0.0), framealpha=1.0)
 
+        # Add on the angles.
+        a.plot([0, observer.lon[0].value], [0, observer.r[0].value], 'k-', zorder=1)
+        a.plot([0, 0], [0, observer.r[0].value], 'k-', zorder=1)
+
+        # Label elon
+        a.text(observer.lon[0].value+0.025, 0.88*observer.r[0].value, "$\\epsilon$", horizontalalignment='left', fontsize=20)
+        x = (observer.r[0]*np.cos(observer.lon[0])).value
+        y = (observer.r[0]*np.sin(observer.lon[0])).value
+        lon = observer.lon[0]
+        beta = np.abs((lon.to(u.deg).value - 360))
+        elo = el.to(u.deg).value
+        psi = 180 - beta - elo
+        theta1 = psi
+        theta2 = psi+elo
+        arc = mpl.patches.Arc((x, y), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
+        a.add_artist(arc)
+
+        # Label beta
+        a.text(observer.lon[0].value+0.1, 0.1*observer.r[0].value, "$\\beta$", horizontalalignment='left', fontsize=18) 
+        theta1 = -beta
+        theta2 = 0
+        arc = mpl.patches.Arc((0, 0), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
+        a.add_artist(arc)
+
         a.text(0.26, 0.95, lab, horizontalalignment='left', transform=a.transAxes, fontsize=24 ,bbox=dict(facecolor='white'))
 
-    project_dirs = get_project_dirs()
     fig.subplots_adjust(left=-0.15, bottom=-0.0, right=1.15, top=0.99, wspace=-0.45)
+    project_dirs = get_project_dirs()
     fig_name = 'geomodel_schematic.pdf'
     fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path)
+    return
+
 
 if __name__ == "__main__":
     
