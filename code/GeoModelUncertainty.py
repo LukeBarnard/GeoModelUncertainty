@@ -632,13 +632,13 @@ def hdf5_save_solarwind_boundary_var(parent_group, model, cme):
     
     # Standard deviation in V over all domain
     v_std = np.std(v_bound[:, id_cme_lons])
-    dset = parent_group.create_dataset('v_std', data=v_bound_std)
-    dset.attrs['unit'] = v_bound_std.unit.to_string()
+    dset = parent_group.create_dataset('v_std', data=v_std)
+    dset.attrs['unit'] = v_std.unit.to_string()
     
     # Standard deviation in V over only the inner boundary
     v_b_std = np.std(v_bound[0, id_cme_lons])
     dset = parent_group.create_dataset('v_b_std', data=v_b_std)
-    dset.attrs['unit'] = v_bound_std.unit.to_string()
+    dset.attrs['unit'] = v_b_std.unit.to_string()
     
     # Standard deviation in longitudinal difference in V
     dv_std = np.std(np.diff(v_bound[:, id_cme_lons], axis=1))
