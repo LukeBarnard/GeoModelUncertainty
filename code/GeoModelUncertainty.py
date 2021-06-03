@@ -1377,8 +1377,6 @@ def plot_error_series_and_distribution():
         ax[0].set_ylim(-0.1, 0.25)
         ax[0].set_xlabel('HUXt apex (Au)')
         
-        
-
         # Add histogram to last panel
         bins = np.arange(-0.01, 0.02, 0.002)
         ax[1].hist(sum_err, bins, density=True, color='skyblue')
@@ -1559,13 +1557,13 @@ def plot_elevohi_error_violins():
 
         mae_data = []
         me_data = []
-
+        samples = []
         for ol in observer_lons:
 
             id_obs = data['sep'] == ol
             mae_data.append(data.loc[id_obs, 'mae_t'])
             me_data.append(data.loc[id_obs, 'me_t'])
-
+            samples.append(sum(id_obs))
 
         h = axlft[i].violinplot(mae_data, positions=observer_lons, widths=5, showmeans=True)
         mae_handles.append(h)
@@ -1573,12 +1571,17 @@ def plot_elevohi_error_violins():
         h = axrgt[i].violinplot(me_data, positions=observer_lons, widths=5, showmeans=True)
         me_handles.append(h)
 
+        # Add on sample size
+        for j, ol in enumerate(observer_lons):
+            axlft[i].text(ol, -2, "N=" + str(samples[j]), horizontalalignment='center', fontsize=10)
+            axrgt[i].text(ol, -39, "N=" + str(samples[j]), horizontalalignment='center', fontsize=10)
+
     for a in axr:
         a.set_xlim(261, 359)    
         a.tick_params(direction='in')
 
     for a, h, label in zip(axlft, mae_handles, ['Average', 'Fast', 'Extreme']):
-        a.set_ylim(0, 38)
+        a.set_ylim(-3, 38)
         a.set_ylabel('$|\\Delta t_{eeh}|$ (hours)')
         a.text(0.99, 0.9, label, horizontalalignment='right', transform=a.transAxes, fontsize=18)
 
@@ -1592,7 +1595,7 @@ def plot_elevohi_error_violins():
             vp.set_edgecolor(color_dict[label])
 
     for a, h, label in zip(axrgt, me_handles, ['Average', 'Fast', 'Extreme']):
-        a.set_ylim(-38, 20)
+        a.set_ylim(-40, 19)
         a.set_ylabel('$\\Delta t_{eeh}$ (hours)')
         a.yaxis.tick_right()
         a.yaxis.set_label_position('right')
@@ -1606,7 +1609,6 @@ def plot_elevohi_error_violins():
         for partname in ('cbars','cmins','cmaxes','cmeans'):
             vp = h[partname]
             vp.set_edgecolor(color_dict[label])
-
 
     for a in ax[0:2, :].ravel():
         a.set_xticklabels([])
@@ -1840,6 +1842,41 @@ def plot_geomodel_schematic():
     fig_name = 'geomodel_schematic.pdf'
     fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path)
+    return
+
+
+def print_elevohi_arrival_error_stats():
+    
+    project_dirs = get_project_dirs()
+    data_avg = pd.read_csv(project_dirs['ELEvoHI_average'], delim_whitespace=True)
+    data_fst = pd.read_csv(project_dirs['ELEvoHI_fast'], delim_whitespace=True)
+    data_ext = pd.read_csv(project_dirs['ELEvoHI_extreme'], delim_whitespace=True)
+
+    print("******************************")
+    print("MAE")
+    x = data_avg.loc[data_avg['sep']==300, 'mae_t']
+    print("Average: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+    x = data_fst.loc[data_fst['sep']==300, 'mae_t']
+    print("Fast: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+    x = data_ext.loc[data_ext['sep']==300, 'mae_t']
+    print("Extreme: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+
+    print(sum(data_avg['sep']==300),sum(data_fst['sep']==300),sum(data_ext['sep']==300))
+
+    print(np.average([8.23, 8.33, 5.81], weights=[98,66,43]))
+
+    print("******************************")
+    print("ME")
+    x = data_avg.loc[data_avg['sep']==300, 'me_t']
+    print("Average: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+    x = data_fst.loc[data_fst['sep']==300, 'me_t']
+    print("Fast: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+    x = data_ext.loc[data_ext['sep']==300, 'me_t']
+    print("Extreme: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+
+    print(sum(data_avg['sep']==300),sum(data_fst['sep']==300),sum(data_ext['sep']==300))
+
+    print(np.average([8.23, 8.33, 5.78], weights=[98,66,43]))
     return
 
 
