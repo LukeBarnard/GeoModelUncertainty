@@ -1880,15 +1880,15 @@ def print_elevohi_arrival_error_stats():
     return
 
 
-if __name__ == "__main__":
-    
-    build_cme_scenarios()
-    produce_huxt_ensemble(n=100)
-    plot_kinematics_example_multi_observer()
-    plot_kinematic_example_multi_model()
-    plot_kinematics_subset()
-    plot_error_series_and_distribution()
-    plot_error_vs_longitude()
-    plot_elevohi_error_violins()
-    plot_elevohi_mean_errors()
-    plot_geomodel_schematic()
+#if __name__ == "__main__":
+#    
+#    build_cme_scenarios()
+#    produce_huxt_ensemble(n=100)
+#    plot_kinematics_example_multi_observer()
+#    plot_kinematic_example_multi_model()
+#    plot_kinematics_subset()
+#    plot_error_series_and_distribution()
+#    plot_error_vs_longitude()
+#    plot_elevohi_error_violins()
+#    plot_elevohi_mean_errors()
+#    plot_geomodel_schematic()
