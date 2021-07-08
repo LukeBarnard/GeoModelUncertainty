@@ -970,6 +970,176 @@ def produce_huxt_ensemble(n=100):
     out_file.close()
     return
 
+def get_observer_los(ro, lo, el):
+    """
+    Function to compute a matplotlib patch to higlight an observers field of view. 
+    ro = radius of observer (in solRad)
+    lo = longitude of observer (in rad)
+    el_min = minimum elongation of the field of view
+    el_max = maximum elongation of the field of view
+    """
+    xo = ro*np.cos(lo)
+    yo = ro*np.sin(lo)
+            
+    rp = ro*np.tan(el)
+    if (lo < 0*u.rad) | (lo > np.pi*u.rad):
+        lp = lo + 90*u.deg
+    else:
+        lp = lo - 90*u.deg
+
+    if lp > 2*np.pi*u.rad:
+        lp = lp - 2*np.pi*u.rad
+
+    xp = rp*np.cos(lp)
+    yp = rp*np.sin(lp)
+
+    # Wolfram equations for intersection of line with circle
+    rf = 475*u.solRad  # set this to a large value outside axis lims so FOV shading spans model domain
+    dx = (xp - xo)
+    dy = (yp - yo)
+    dr = np.sqrt(dx**2 + dy**2)
+    det = (xo*yp - xp*yo)
+    discrim = np.sqrt((rf*dr)**2 - det**2)
+
+    if (lo < 0*u.rad) | (lo > np.pi*u.rad):
+        xf = (det*dy + np.sign(dy)*dx*discrim) / (dr**2)
+        yf = (-det*dx + np.abs(dy)*discrim) / (dr**2)
+    else:
+        xf = (det*dy - np.sign(dy)*dx*discrim) / (dr**2)
+        yf = (-det*dx - np.abs(dy)*discrim) / (dr**2)
+
+    lf = np.arctan2(yf, xf)
+    
+    return lf, rf
+
+
+def plot_geomodel_schematic():
+    """
+    Figure 1 of the article showing a schematic of the different classes of 
+    geometric model for each CME scenario.
+    """
+    
+    cme_scenarios = load_cme_scenarios()
+
+    gm_keys = ['fp', 'hm', 'sse', 'elp']
+    gm_cols = {gk:Dark2_5.mpl_colors[i] for i, gk in enumerate(gm_keys)}
+    gm_style = {'fp':'*', 'hm':'-', 'sse':'--', 'elp':':' }
+
+    fig, ax = plt.subplots(1, 3, figsize=(15, 10), subplot_kw={"projection": "polar"})
+
+    for i, scenario_key in enumerate(['average', 'fast', 'extreme']):
+
+        scenario = cme_scenarios[scenario_key]
+
+        start_time = Time('2008-06-10T00:00:00')
+
+        ert = H.Observer('EARTH', start_time)
+        lons, dlon, nlon = H.longitude_grid()
+        vr_in = 400*(u.km/u.s)*np.ones(lons.size)
+        cr_num = np.fix(sn.carrington_rotation_number(start_time))
+
+        model = H.HUXt(v_boundary=vr_in, cr_num=cr_num, cr_lon_init=ert.lon_c, latitude=ert.lat.to(u.deg),
+                       lon_start=300*u.deg, lon_stop=60*u.deg, simtime=3*u.day, dt_scale=1)
+
+        t_launch = (1*u.hr).to(u.s)
+        cme = H.ConeCME(t_launch=t_launch, longitude=0*u.deg, latitude=model.latitude.to(u.deg),
+                        width=scenario['width'], v=scenario['speed'], thickness=0.1*u.solRad)
+
+        model.solve([cme])
+        cme = model.cmes[0]
+
+        # Observe the CME from L4 and L5
+        # Add on Earth, Observer, and Observers Line of sight of flank
+        ert = model.get_observer('EARTH')
+        ax[i].plot(ert.lon[0], ert.r[0], 'co', markersize=16, label='Earth')            
+
+        observer = Observer(model, 300.0*u.deg, el_min=4.0, el_max=60.0, color='b', name='L5')
+        ax[i].plot(observer.lon[0], observer.r[0], 's', color=observer.color, markersize=16, label='Observer')
+
+        # Get the LOS
+        r_obs = observer.r[0]
+        lon_obs = observer.lon[0]
+        el = np.deg2rad(40)*u.rad
+        lf, rf = get_observer_los(r_obs, lon_obs, el)
+        ax[i].plot([lon_obs.value, lf.value], [r_obs.value, rf.value], '--', color=observer.color, zorder=0)
+
+        # Add on the geometric models
+        #Fixed Phi
+        lon_apex, r_apex = fixed_phi(cme, r_obs, lon_obs, el)
+        ax[i].plot(lon_apex.value, r_apex.value, '*', markersize=14, color=gm_cols['fp'])
+
+        # Harmonic mean
+        lon_apex, r_apex, r_center, radius = harmonic_mean(cme, r_obs, lon_obs, el)
+        x_c = r_center*np.cos(lon_apex)
+        y_c = r_center*np.sin(lon_apex)
+        hmm_circ = plt.Circle((x_c.value, y_c.value), radius.value, color=gm_cols['hm'], fill=False, linewidth=3, linestyle=gm_style['hm'], zorder=0, transform=ax[i].transData._b)
+        ax[i].add_artist(hmm_circ)
+
+        # Self similar expansion
+        lon_apex, r_apex, r_center, radius = self_similar_expansion(cme, r_obs, lon_obs, el)
+        x_c = (r_center*np.cos(lon_apex)).value
+        y_c = (r_center*np.sin(lon_apex)).value
+        sse_circ = plt.Circle((x_c, y_c), radius.value, color=gm_cols['sse'], fill=False, linewidth=3, linestyle=gm_style['sse'], zorder=1, transform=ax[i].transData._b)
+        ax[i].add_artist(sse_circ)
+
+        # ElCon
+        lon_apex, r_apex, r_center, r_a, r_b = elcon(cme, r_obs, lon_obs, el)
+        x_c = (r_center*np.cos(lon_apex)).value
+        y_c = (r_center*np.sin(lon_apex)).value
+        l_c = cme.longitude.value
+        elp_elip = mpl.patches.Ellipse(xy=[x_c, y_c], width=2*r_b.value, height=2*r_a.value, angle=l_c, color=gm_cols['elp'], fill=False,
+                                       linewidth=3, linestyle=gm_style['elp'], zorder=2, transform=ax[i].transData._b)
+        ax[i].add_artist(elp_elip)
+
+
+    for a, lab in zip(ax, ['Average', 'Fast', 'Extreme']):
+        a.set_xlim(-np.pi/2, np.pi/2)
+        a.set_ylim(0, 240)
+        a.set_yticklabels([])
+        a.set_xticklabels([])
+        a.patch.set_facecolor('whitesmoke')
+
+        # Workaround to include patches in the legend
+        a.plot([], [], gm_style['fp'], markersize=14, color=gm_cols['fp'], label='FP')
+        a.plot([], [], linestyle=gm_style['hm'], color=gm_cols['hm'], linewidth=3, label='HM')
+        a.plot([], [], linestyle=gm_style['sse'], color=gm_cols['sse'], linewidth=3, label='SSE')
+        a.plot([], [], linestyle=gm_style['elp'], color=gm_cols['elp'], linewidth=3, label='ElCon')
+
+        a.legend(loc='lower left', bbox_to_anchor=(0.525, 0.0), framealpha=1.0)
+
+        # Add on the angles.
+        a.plot([0, observer.lon[0].value], [0, observer.r[0].value], 'k-', zorder=1)
+        a.plot([0, 0], [0, observer.r[0].value], 'k-', zorder=1)
+
+        # Label elon
+        a.text(observer.lon[0].value+0.025, 0.88*observer.r[0].value, "$\\epsilon$", horizontalalignment='left', fontsize=20)
+        x = (observer.r[0]*np.cos(observer.lon[0])).value
+        y = (observer.r[0]*np.sin(observer.lon[0])).value
+        lon = observer.lon[0]
+        beta = np.abs((lon.to(u.deg).value - 360))
+        elo = el.to(u.deg).value
+        psi = 180 - beta - elo
+        theta1 = psi
+        theta2 = psi+elo
+        arc = mpl.patches.Arc((x, y), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
+        a.add_artist(arc)
+
+        # Label beta
+        a.text(observer.lon[0].value+0.1, 0.1*observer.r[0].value, "$\\beta$", horizontalalignment='left', fontsize=18) 
+        theta1 = -beta
+        theta2 = 0
+        arc = mpl.patches.Arc((0, 0), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
+        a.add_artist(arc)
+
+        a.text(0.26, 0.95, lab, horizontalalignment='left', transform=a.transAxes, fontsize=24 ,bbox=dict(facecolor='white'))
+
+    fig.subplots_adjust(left=-0.15, bottom=-0.0, right=1.15, top=0.99, wspace=-0.45)
+    project_dirs = get_project_dirs()
+    fig_name = 'geomodel_schematic.pdf'
+    fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
+    fig.savefig(fig_path)
+    return
+
 
 def plot_kinematics_example_multi_observer():
 
@@ -1226,7 +1396,7 @@ def plot_kinematics_subset():
     scenario = data['average']
     rs = 1*u.AU.to(u.km)
 
-    obs_keys  = ['Observer 350.00', 'Observer 310.00', 'Observer 270.00']
+    obs_keys  = ['Observer 350.00', 'Observer 300.00', 'Observer 270.00']
     gm_keys = ['fp', 'hm', 'sse', 'elp']
     gm_cols = {gk:Dark2_5.mpl_colors[i] for i, gk in enumerate(gm_keys)}
     gm_labels = {'fp':'FP', 'hm':'HM', 'sse':'SSE', 'elp':'ElCon'}
@@ -1568,9 +1738,13 @@ def plot_elevohi_error_violins():
         h = axlft[i].violinplot(mae_data, positions=observer_lons, widths=5, showmeans=True)
         mae_handles.append(h)
 
+        # Add on zero line to right hand side.
+        axrgt[i].hlines(0, 260, 360, colors=['k'], linestyles=['dashed'])
+        
         h = axrgt[i].violinplot(me_data, positions=observer_lons, widths=5, showmeans=True)
         me_handles.append(h)
-
+        
+        
         # Add on sample size
         for j, ol in enumerate(observer_lons):
             axlft[i].text(ol, -2, "N=" + str(samples[j]), horizontalalignment='center', fontsize=10)
@@ -1582,7 +1756,7 @@ def plot_elevohi_error_violins():
 
     for a, h, label in zip(axlft, mae_handles, ['Average', 'Fast', 'Extreme']):
         a.set_ylim(-3, 38)
-        a.set_ylabel('$|\\Delta t_{eeh}|$ (hours)')
+        a.set_ylabel('$|\\Delta t|$ (hours)')
         a.text(0.99, 0.9, label, horizontalalignment='right', transform=a.transAxes, fontsize=18)
 
         # Color the violins
@@ -1596,7 +1770,7 @@ def plot_elevohi_error_violins():
 
     for a, h, label in zip(axrgt, me_handles, ['Average', 'Fast', 'Extreme']):
         a.set_ylim(-40, 19)
-        a.set_ylabel('$\\Delta t_{eeh}$ (hours)')
+        a.set_ylabel('$\\Delta t$ (hours)')
         a.yaxis.tick_right()
         a.yaxis.set_label_position('right')
         a.text(0.01, 0.9, label, horizontalalignment='left', transform=a.transAxes, fontsize=18)
@@ -1661,11 +1835,11 @@ def plot_elevohi_mean_errors():
         a.legend(loc='upper center')
         a.tick_params(direction='in')
 
-    ax[0].set_ylabel('Mean absolute arrival time error, $\\langle |\\Delta t_{eeh}| \\rangle _{bws}$, (hours)')
+    ax[0].set_ylabel('Mean absolute arrival time error, $\\langle |\\Delta t| \\rangle$, (hours)')
 
     ax[1].yaxis.tick_right()
     ax[1].yaxis.set_label_position('right')
-    ax[1].set_ylabel('Mean arrival time error, $\\langle \\Delta t_{eeh} \\rangle _{bws}$, (hours)')
+    ax[1].set_ylabel('Mean arrival time error, $\\langle \\Delta t} \\rangle$, (hours)')
 
     fig.subplots_adjust(left=0.05, bottom=0.1, right=0.93, top=0.99, wspace=0.01)
     fig_name = 'mean_err_vs_lon.pdf'
@@ -1674,216 +1848,128 @@ def plot_elevohi_mean_errors():
     return
 
 
-def get_observer_los(ro, lo, el):
+def plot_elevohi_error_metrics():
     """
-    Function to compute a matplotlib patch to higlight an observers field of view. 
-    ro = radius of observer (in solRad)
-    lo = longitude of observer (in rad)
-    el_min = minimum elongation of the field of view
-    el_max = maximum elongation of the field of view
+    Compute the mean error, mean absolute error, standard deviation, and RMSE of the ELEvoHI arrival times as a function of observer longitude.
+    Plot these out.
     """
-    xo = ro*np.cos(lo)
-    yo = ro*np.sin(lo)
-            
-    rp = ro*np.tan(el)
-    if (lo < 0*u.rad) | (lo > np.pi*u.rad):
-        lp = lo + 90*u.deg
-    else:
-        lp = lo - 90*u.deg
-
-    if lp > 2*np.pi*u.rad:
-        lp = lp - 2*np.pi*u.rad
-
-    xp = rp*np.cos(lp)
-    yp = rp*np.sin(lp)
-
-    # Wolfram equations for intersection of line with circle
-    rf = 475*u.solRad  # set this to a large value outside axis lims so FOV shading spans model domain
-    dx = (xp - xo)
-    dy = (yp - yo)
-    dr = np.sqrt(dx**2 + dy**2)
-    det = (xo*yp - xp*yo)
-    discrim = np.sqrt((rf*dr)**2 - det**2)
-
-    if (lo < 0*u.rad) | (lo > np.pi*u.rad):
-        xf = (det*dy + np.sign(dy)*dx*discrim) / (dr**2)
-        yf = (-det*dx + np.abs(dy)*discrim) / (dr**2)
-    else:
-        xf = (det*dy - np.sign(dy)*dx*discrim) / (dr**2)
-        yf = (-det*dx - np.abs(dy)*discrim) / (dr**2)
-
-    lf = np.arctan2(yf, xf)
-    
-    return lf, rf
-
-
-def plot_geomodel_schematic():
-    """
-    Figure 1 of the article showing a schematic of the different classes of 
-    geometric model for each CME scenario.
-    """
-    
-    cme_scenarios = load_cme_scenarios()
-
-    gm_keys = ['fp', 'hm', 'sse', 'elp']
-    gm_cols = {gk:Dark2_5.mpl_colors[i] for i, gk in enumerate(gm_keys)}
-    gm_style = {'fp':'*', 'hm':'-', 'sse':'--', 'elp':':' }
-
-    fig, ax = plt.subplots(1, 3, figsize=(15, 10), subplot_kw={"projection": "polar"})
-
-    for i, scenario_key in enumerate(['average', 'fast', 'extreme']):
-
-        scenario = cme_scenarios[scenario_key]
-
-        start_time = Time('2008-06-10T00:00:00')
-
-        ert = H.Observer('EARTH', start_time)
-        lons, dlon, nlon = H.longitude_grid()
-        vr_in = 400*(u.km/u.s)*np.ones(lons.size)
-        cr_num = np.fix(sn.carrington_rotation_number(start_time))
-
-        model = H.HUXt(v_boundary=vr_in, cr_num=cr_num, cr_lon_init=ert.lon_c, latitude=ert.lat.to(u.deg),
-                       lon_start=300*u.deg, lon_stop=60*u.deg, simtime=3*u.day, dt_scale=1)
-
-        t_launch = (1*u.hr).to(u.s)
-        cme = H.ConeCME(t_launch=t_launch, longitude=0*u.deg, latitude=model.latitude.to(u.deg),
-                        width=scenario['width'], v=scenario['speed'], thickness=0.1*u.solRad)
-
-        model.solve([cme])
-        cme = model.cmes[0]
-
-        # Observe the CME from L4 and L5
-        # Add on Earth, Observer, and Observers Line of sight of flank
-        ert = model.get_observer('EARTH')
-        ax[i].plot(ert.lon[0], ert.r[0], 'co', markersize=16, label='Earth')            
-
-        observer = Observer(model, 300.0*u.deg, el_min=4.0, el_max=60.0, color='b', name='L5')
-        ax[i].plot(observer.lon[0], observer.r[0], 's', color=observer.color, markersize=16, label='Observer')
-
-        # Get the LOS
-        r_obs = observer.r[0]
-        lon_obs = observer.lon[0]
-        el = np.deg2rad(40)*u.rad
-        lf, rf = get_observer_los(r_obs, lon_obs, el)
-        ax[i].plot([lon_obs.value, lf.value], [r_obs.value, rf.value], '--', color=observer.color, zorder=0)
-
-        # Add on the geometric models
-        #Fixed Phi
-        lon_apex, r_apex = fixed_phi(cme, r_obs, lon_obs, el)
-        ax[i].plot(lon_apex.value, r_apex.value, '*', markersize=14, color=gm_cols['fp'])
-
-        # Harmonic mean
-        lon_apex, r_apex, r_center, radius = harmonic_mean(cme, r_obs, lon_obs, el)
-        x_c = r_center*np.cos(lon_apex)
-        y_c = r_center*np.sin(lon_apex)
-        hmm_circ = plt.Circle((x_c.value, y_c.value), radius.value, color=gm_cols['hm'], fill=False, linewidth=3, linestyle=gm_style['hm'], zorder=0, transform=ax[i].transData._b)
-        ax[i].add_artist(hmm_circ)
-
-        # Self similar expansion
-        lon_apex, r_apex, r_center, radius = self_similar_expansion(cme, r_obs, lon_obs, el)
-        x_c = (r_center*np.cos(lon_apex)).value
-        y_c = (r_center*np.sin(lon_apex)).value
-        sse_circ = plt.Circle((x_c, y_c), radius.value, color=gm_cols['sse'], fill=False, linewidth=3, linestyle=gm_style['sse'], zorder=1, transform=ax[i].transData._b)
-        ax[i].add_artist(sse_circ)
-
-        # ElCon
-        lon_apex, r_apex, r_center, r_a, r_b = elcon(cme, r_obs, lon_obs, el)
-        x_c = (r_center*np.cos(lon_apex)).value
-        y_c = (r_center*np.sin(lon_apex)).value
-        l_c = cme.longitude.value
-        elp_elip = mpl.patches.Ellipse(xy=[x_c, y_c], width=2*r_b.value, height=2*r_a.value, angle=l_c, color=gm_cols['elp'], fill=False,
-                                       linewidth=3, linestyle=gm_style['elp'], zorder=2, transform=ax[i].transData._b)
-        ax[i].add_artist(elp_elip)
-
-
-    for a, lab in zip(ax, ['Average', 'Fast', 'Extreme']):
-        a.set_xlim(-np.pi/2, np.pi/2)
-        a.set_ylim(0, 240)
-        a.set_yticklabels([])
-        a.set_xticklabels([])
-        a.patch.set_facecolor('whitesmoke')
-
-        # Workaround to include patches in the legend
-        a.plot([], [], gm_style['fp'], markersize=14, color=gm_cols['fp'], label='FP')
-        a.plot([], [], linestyle=gm_style['hm'], color=gm_cols['hm'], linewidth=3, label='HM')
-        a.plot([], [], linestyle=gm_style['sse'], color=gm_cols['sse'], linewidth=3, label='SSE')
-        a.plot([], [], linestyle=gm_style['elp'], color=gm_cols['elp'], linewidth=3, label='ElCon')
-
-        a.legend(loc='lower left', bbox_to_anchor=(0.525, 0.0), framealpha=1.0)
-
-        # Add on the angles.
-        a.plot([0, observer.lon[0].value], [0, observer.r[0].value], 'k-', zorder=1)
-        a.plot([0, 0], [0, observer.r[0].value], 'k-', zorder=1)
-
-        # Label elon
-        a.text(observer.lon[0].value+0.025, 0.88*observer.r[0].value, "$\\epsilon$", horizontalalignment='left', fontsize=20)
-        x = (observer.r[0]*np.cos(observer.lon[0])).value
-        y = (observer.r[0]*np.sin(observer.lon[0])).value
-        lon = observer.lon[0]
-        beta = np.abs((lon.to(u.deg).value - 360))
-        elo = el.to(u.deg).value
-        psi = 180 - beta - elo
-        theta1 = psi
-        theta2 = psi+elo
-        arc = mpl.patches.Arc((x, y), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
-        a.add_artist(arc)
-
-        # Label beta
-        a.text(observer.lon[0].value+0.1, 0.1*observer.r[0].value, "$\\beta$", horizontalalignment='left', fontsize=18) 
-        theta1 = -beta
-        theta2 = 0
-        arc = mpl.patches.Arc((0, 0), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
-        a.add_artist(arc)
-
-        a.text(0.26, 0.95, lab, horizontalalignment='left', transform=a.transAxes, fontsize=24 ,bbox=dict(facecolor='white'))
-
-    fig.subplots_adjust(left=-0.15, bottom=-0.0, right=1.15, top=0.99, wspace=-0.45)
-    project_dirs = get_project_dirs()
-    fig_name = 'geomodel_schematic.pdf'
-    fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
-    fig.savefig(fig_path)
-    return
-
-
-def print_elevohi_arrival_error_stats():
     
     project_dirs = get_project_dirs()
     data_avg = pd.read_csv(project_dirs['ELEvoHI_average'], delim_whitespace=True)
     data_fst = pd.read_csv(project_dirs['ELEvoHI_fast'], delim_whitespace=True)
     data_ext = pd.read_csv(project_dirs['ELEvoHI_extreme'], delim_whitespace=True)
 
-    print("******************************")
-    print("MAE")
-    x = data_avg.loc[data_avg['sep']==300, 'mae_t']
-    print("Average: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
-    x = data_fst.loc[data_fst['sep']==300, 'mae_t']
-    print("Fast: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
-    x = data_ext.loc[data_ext['sep']==300, 'mae_t']
-    print("Extreme: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+    fig, ax = plt.subplots(4, 1, figsize=(10, 10))
+    labels = ['Average', 'Fast', 'Extreme']
+    colors = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(labels)}
+    fmt = ['s-', 'x--', '^:']
 
-    print(sum(data_avg['sep']==300),sum(data_fst['sep']==300),sum(data_ext['sep']==300))
+    for c, data in enumerate([data_avg, data_fst, data_ext]):
 
-    print(np.average([8.23, 8.33, 5.81], weights=[98,66,43]))
 
-    print("******************************")
-    print("ME")
-    x = data_avg.loc[data_avg['sep']==300, 'me_t']
-    print("Average: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
-    x = data_fst.loc[data_fst['sep']==300, 'me_t']
-    print("Fast: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
-    x = data_ext.loc[data_ext['sep']==300, 'me_t']
-    print("Extreme: {:3.2f}+/-{:3.2f}".format(x.mean(), 2*x.sem()))
+        observer_lons = np.sort(data['sep'].unique())
 
-    print(sum(data_avg['sep']==300),sum(data_fst['sep']==300),sum(data_ext['sep']==300))
+        mae = np.zeros(observer_lons.shape)
+        mae_sem = np.zeros(observer_lons.shape)
 
-    print(np.average([8.23, 8.33, 5.78], weights=[98,66,43]))
+        me = np.zeros(observer_lons.shape)
+        me_sem = np.zeros(observer_lons.shape)
+
+        rmse = np.zeros(observer_lons.shape)
+        std = np.zeros(observer_lons.shape)
+
+        for i, ol in enumerate(observer_lons):
+
+            id_obs = data['sep'] == ol
+            me[i] = data.loc[id_obs, 'me_t'].mean()
+            me_sem[i] = 2*data.loc[id_obs, 'me_t'].sem()
+
+            mae[i] = data.loc[id_obs, 'mae_t'].mean()
+            mae_sem[i] = 2*data.loc[id_obs, 'mae_t'].sem()
+
+            std[i] = data.loc[id_obs, 'me_t'].std()
+
+            sq_err = data.loc[id_obs, 'me_t'].values**2
+            rmse[i] = np.sqrt(np.mean(sq_err))
+
+        ax[0].errorbar(observer_lons, me, yerr=me_sem, fmt=fmt[c], color=colors[labels[c]], label=labels[c])
+        ax[1].errorbar(observer_lons, mae, yerr=mae_sem, fmt=fmt[c], color=colors[labels[c]], label=labels[c])
+        ax[2].plot(observer_lons, rmse, fmt[c], color=colors[labels[c]], label=labels[c])
+        ax[3].plot(observer_lons, std, fmt[c], color=colors[labels[c]], label=labels[c])
+
+    for a in ax:
+        a.set_xlim(269, 351)
+        a.legend(loc='upper center', ncol=3)
+        a.tick_params(direction='in')
+
+    for a in ax[0:-1]:
+        a.set_xticklabels([])
+        
+    # Annotate the panels
+    for a, label in zip(ax, ['A)', 'B)', 'C)', 'D)']):
+        a.text(0.03, 0.9, label, fontsize=14, transform=a.transAxes)
+
+
+    ax[1].set_ylim(3, 15)
+    ax[2].set_ylim(5, 17)
+    ax[3].set_ylim(2, 10.5)
+
+    ax[3].set_xlabel('Observer longitude (deg)')
+
+    ax[0].set_ylabel('$\\langle \\Delta t\\rangle$, (hours)')
+    ax[1].set_ylabel('$\\langle |\\Delta t| \\rangle$, (hours)')
+    ax[2].set_ylabel('$RMSE_{\\Delta t}$, (hours)')
+    ax[3].set_ylabel('$\\sigma_{\\Delta t}$, (hours)')
+
+
+    fig.subplots_adjust(left=0.09, bottom=0.075, right=0.99, top=0.99, hspace=0.02)
+    fig_name = 'error_metrics_vs_lon.pdf'
+    fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
+    fig.savefig(fig_path)
+    return
+
+
+def print_elevohi_l5_error_metrics():
+
+    project_dirs = get_project_dirs()
+    data_avg = pd.read_csv(project_dirs['ELEvoHI_average'], delim_whitespace=True)
+    data_fst = pd.read_csv(project_dirs['ELEvoHI_fast'], delim_whitespace=True)
+    data_ext = pd.read_csv(project_dirs['ELEvoHI_extreme'], delim_whitespace=True)
+
+    # Create file for saving data.
+    out_file_path = os.path.join(project_dirs['out_data'],'elevohi_error_metrics.dat')
+    with open(out_file_path, 'w') as f:
+        f.write('ELEvoHI Error Metrics at L5\n \n')
+
+    scenario_dict = {'average': data_avg, 'fast': data_fst, 'extreme': data_ext}
+    for key, data in scenario_dict.items():
+
+        id_obs = data['sep'] == 300
+        me = data.loc[id_obs, 'me_t'].mean()
+        me_sem = 2*data.loc[id_obs, 'me_t'].sem()
+
+        mae = data.loc[id_obs, 'mae_t'].mean()
+        mae_sem = 2*data.loc[id_obs, 'mae_t'].sem()
+
+        std = data.loc[id_obs, 'me_t'].std()
+
+        sq_err = data.loc[id_obs, 'me_t'].values**2
+        rmse = np.sqrt(np.mean(sq_err))
+
+        with open(out_file_path, 'a') as f:
+            f.write('{} \n'.format(key.upper()))
+            f.write('Mean Error: {:3.2f}+/-{:3.2f}\n'.format(me, me_sem))
+            f.write('Mean Abs. Error: {:3.2f}+/-{:3.2f}\n'.format(mae, mae_sem))
+            f.write('RMSE: {:3.2f}\n'.format(rmse))
+            f.write('STD: {:3.2f}\n \n'.format(std))
     return
 
 
 #if __name__ == "__main__":
-#    
+    
 #    build_cme_scenarios()
 #    produce_huxt_ensemble(n=100)
+#    plot_geomodel_schematic()
 #    plot_kinematics_example_multi_observer()
 #    plot_kinematic_example_multi_model()
 #    plot_kinematics_subset()
@@ -1891,4 +1977,5 @@ def print_elevohi_arrival_error_stats():
 #    plot_error_vs_longitude()
 #    plot_elevohi_error_violins()
 #    plot_elevohi_mean_errors()
-#    plot_geomodel_schematic()
+#    plot_elevohi_error_metrics()
+#    print_elevohi_l5_error_metrics()
