@@ -128,7 +128,6 @@ class Observer:
         geomod['model_time'] = self.cme_flank['model_time']
         
         pi = np.pi*u.rad
-        piby2 = pi/2.0
         d0 = self.r  #Observer distance
         el = self.cme_flank['el'].values*u.deg
         beta = self.lon - cme.longitude
@@ -156,7 +155,6 @@ class Observer:
         geomod['model_time'] = self.cme_flank['model_time']
         
         pi = np.pi*u.rad
-        piby2 = pi/2.0
         d0 = self.r # Observer distance
         el = self.cme_flank['el'].values*u.deg
         beta = self.lon - cme.longitude
@@ -191,7 +189,6 @@ class Observer:
         geomod['model_time'] = self.cme_flank['model_time']
 
         pi = np.pi*u.rad
-        piby2 = pi/2.0
         d0 = self.r  #Sun-observer distance
         half_width = cme.width / 2.0
         el = self.cme_flank['el'].values*u.deg
@@ -205,7 +202,7 @@ class Observer:
         bottom = (np.sin(psi) + np.sin(half_width))
         r_apex = top / bottom
         
-        # Calc radius from apex distance and halfwidth. Eq 4 of Moestl2012
+        # Calc radius from apex distance and half width. Eq 4 of Moestl2012
         radius = r_apex * np.sin(half_width) / (1 + np.sin(half_width))
         # Calc SSE center
         r_center = r_apex - radius
@@ -282,7 +279,6 @@ def fixed_phi(cme, r_obs, lon_obs, el):
     Return the FP point for a specified, CME, observer location, and elongation.
     """    
     pi = np.pi*u.rad
-    piby2 = pi/2.0
     beta = lon_obs - cme.longitude
     if beta > pi:
         beta = 2*pi - beta
@@ -298,7 +294,6 @@ def harmonic_mean(cme, r_obs, lon_obs, el):
     Return the HM circle parameters for the HM model for a specified, CME, observer location, and elongation.
     """ 
     pi = np.pi*u.rad
-    piby2 = pi/2.0
     beta = lon_obs - cme.longitude
     if beta > pi:
         beta = 2*pi - beta
@@ -318,7 +313,6 @@ def self_similar_expansion(cme, r_obs, lon_obs, el):
     Return the SSE circle parameters for the SSE model for a specified, CME, observer location, and elongation.
     """
     pi = np.pi*u.rad
-    piby2 = pi/2.0
     half_width = cme.width / 2.0
     beta = lon_obs - cme.longitude
     if beta > pi:
@@ -432,7 +426,7 @@ def build_cme_scenarios():
         dset = cme_group.create_dataset('speed', data=speed)
         dset.attrs['unit'] = (u.km/u.s).to_string()
         dset = cme_group.create_dataset('width', data=width)
-        dset.attrs['unit'] = (u.deg).to_string()
+        dset.attrs['unit'] = u.deg.to_string()
 
 
     out_file.close()
@@ -459,7 +453,7 @@ def load_cme_scenarios():
     return cme_scenarios
 
 
-def compute_apex_profile(model, cme):
+def compute_apex_profile(cme):
     """
     Compute the kinematics of the CME apex. 
     """
@@ -470,8 +464,6 @@ def compute_apex_profile(model, cme):
     apex['time'] = time.jd
     apex['model_time'] = model_time
 
-    id_model_lon = np.argmin(np.abs(model.lon - cme.longitude))
-    count = 0
     for i, coord in cme.coords.items():
 
         # Pull out only the CME front
@@ -595,14 +587,14 @@ def hdf5_save_arrival_stats(parent_group, cme):
     return
 
 
-def hdf5_save_apex_profile(parent_group, model, cme):
+def hdf5_save_apex_profile(parent_group, cme):
     """
     Compute the apex profile and save to file
     """
     # Compute apex kinematics and save to file
     apex_group = parent_group.create_group('cme_apex')
     
-    apex = compute_apex_profile(model, cme)
+    apex = compute_apex_profile(cme)
     for key, unit in zip(['time', 'model_time', 'lon', 'r', 'v'], [u.d, u.s, u.rad, u.km, u.km/u.s]):
         dset = apex_group.create_dataset(key, data=apex[key].values)
         dset.attrs['unit'] = unit.to_string()
@@ -735,8 +727,8 @@ def plot_huxt(time, model, observer_list, add_observer=True, add_flank=True):
     :param time: The time to plot. The closest value in model.time_out is selected.
     :param model: A HUXt instance with the solution in.
     :param observer_list: A list of Observer instances with the modelled flank.
+    :param add_observer: If True, add the observer.
     :param add_flank: If True, add the modelled flank.
-    :param add_fov: If True, highlight the observers field of view.
     :return:
     """
     cme = model.cmes[0]
@@ -823,11 +815,12 @@ def plot_huxt_multi(ax, time, model, observer_list, add_observer=True, add_flank
     """
     Plot the HUXt solution at a specified time, and (optionally) overlay the modelled flank location and field of view
     of a specified observer.
+    :param ax: Axes handle to plot in.
     :param time: The time to plot. The closest value in model.time_out is selected.
     :param model: A HUXt instance with the solution in.
     :param observer_list: A list of Observer instances with the modelled flank.
+    :param add_observer: If True, add the observer.
     :param add_flank: If True, add the modelled flank.
-    :param add_fov: If True, highlight the observers field of view.
     :return:
     """
     cme = model.cmes[0]
@@ -861,7 +854,7 @@ def plot_huxt_multi(ax, time, model, observer_list, add_observer=True, add_flank
     mymap.set_over('lightgrey')
     mymap.set_under([0, 0, 0])
     levels = np.arange(200, 800 + 10, 10)
-    cnt = ax.contourf(lon, rad, v, levels=levels, cmap=mymap, extend='both')
+    ax.contourf(lon, rad, v, levels=levels, cmap=mymap, extend='both')
 
     # Add on CME boundaries and Observer
     cme_lons = cme.coords[id_t]['lon']
@@ -939,7 +932,7 @@ def produce_huxt_ensemble(n=100):
             # Save CME details to file
             hdf5_save_cme(run_group, cme)
             hdf5_save_arrival_stats(run_group, cme)
-            hdf5_save_apex_profile(run_group, model, cme)
+            hdf5_save_apex_profile(run_group, cme)
             hdf5_save_solarwind_timeseries(run_group, model)
             hdf5_save_solarwind_boundary_var(run_group, model, cme)
             
@@ -1018,7 +1011,7 @@ def plot_geomodel_schematic():
     Figure 1 of the article showing a schematic of the different classes of 
     geometric model for each CME scenario.
     """
-    
+
     cme_scenarios = load_cme_scenarios()
 
     gm_keys = ['fp', 'hm', 'sse', 'elp']
@@ -1072,14 +1065,16 @@ def plot_geomodel_schematic():
         lon_apex, r_apex, r_center, radius = harmonic_mean(cme, r_obs, lon_obs, el)
         x_c = r_center*np.cos(lon_apex)
         y_c = r_center*np.sin(lon_apex)
-        hmm_circ = plt.Circle((x_c.value, y_c.value), radius.value, color=gm_cols['hm'], fill=False, linewidth=3, linestyle=gm_style['hm'], zorder=0, transform=ax[i].transData._b)
+        hmm_circ = plt.Circle((x_c.value, y_c.value), radius.value, color=gm_cols['hm'], fill=False, linewidth=3,
+                              linestyle=gm_style['hm'], zorder=0, transform=ax[i].transData._b)
         ax[i].add_artist(hmm_circ)
 
         # Self similar expansion
         lon_apex, r_apex, r_center, radius = self_similar_expansion(cme, r_obs, lon_obs, el)
         x_c = (r_center*np.cos(lon_apex)).value
         y_c = (r_center*np.sin(lon_apex)).value
-        sse_circ = plt.Circle((x_c, y_c), radius.value, color=gm_cols['sse'], fill=False, linewidth=3, linestyle=gm_style['sse'], zorder=1, transform=ax[i].transData._b)
+        sse_circ = plt.Circle((x_c, y_c), radius.value, color=gm_cols['sse'], fill=False, linewidth=3,
+                              linestyle=gm_style['sse'], zorder=1, transform=ax[i].transData._b)
         ax[i].add_artist(sse_circ)
 
         # ElCon
@@ -1087,8 +1082,9 @@ def plot_geomodel_schematic():
         x_c = (r_center*np.cos(lon_apex)).value
         y_c = (r_center*np.sin(lon_apex)).value
         l_c = cme.longitude.value
-        elp_elip = mpl.patches.Ellipse(xy=[x_c, y_c], width=2*r_b.value, height=2*r_a.value, angle=l_c, color=gm_cols['elp'], fill=False,
-                                       linewidth=3, linestyle=gm_style['elp'], zorder=2, transform=ax[i].transData._b)
+        elp_elip = mpl.patches.Ellipse(xy=[x_c, y_c], width=2*r_b.value, height=2*r_a.value, angle=l_c,
+                                       color=gm_cols['elp'], fill=False, linewidth=3, linestyle=gm_style['elp'],
+                                       zorder=2, transform=ax[i].transData._b)
         ax[i].add_artist(elp_elip)
 
 
@@ -1111,8 +1107,24 @@ def plot_geomodel_schematic():
         a.plot([0, observer.lon[0].value], [0, observer.r[0].value], 'k-', zorder=1)
         a.plot([0, 0], [0, observer.r[0].value], 'k-', zorder=1)
 
+        cme_hw = cme_scenarios[lab.lower()]['width'].to(u.rad).value/2.0
+        a.plot([0, cme_hw], [0, 1.5*observer.r[0].value], 'k-', zorder=1)
+
+        # Label half width
+        a.text(0.5*cme_hw, 0.29*observer.r[0].value, "$\\lambda$", horizontalalignment='left', fontsize=18) 
+        theta1 = 0
+        theta2 = np.rad2deg(cme_hw)
+        arc = mpl.patches.Arc((0, 0), 150, 150, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0,
+                              linewidth=2, transform=a.transData._b, zorder=1)
+        a.add_artist(arc)
+
+        hw_label = "CME full width: 2$\\lambda={:3.1f}^{{\\circ}}$".format(np.rad2deg(2.0*cme_hw))
+        a.text(0.26, 0.9, hw_label, horizontalalignment='left', transform=a.transAxes, fontsize=16,
+               bbox=dict(facecolor='white'))
+
         # Label elon
-        a.text(observer.lon[0].value+0.025, 0.88*observer.r[0].value, "$\\epsilon$", horizontalalignment='left', fontsize=20)
+        a.text(observer.lon[0].value+0.025, 0.88*observer.r[0].value, "$\\epsilon$", horizontalalignment='left',
+               fontsize=20)
         x = (observer.r[0]*np.cos(observer.lon[0])).value
         y = (observer.r[0]*np.sin(observer.lon[0])).value
         lon = observer.lon[0]
@@ -1121,17 +1133,20 @@ def plot_geomodel_schematic():
         psi = 180 - beta - elo
         theta1 = psi
         theta2 = psi+elo
-        arc = mpl.patches.Arc((x, y), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
+        arc = mpl.patches.Arc((x, y), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0,
+                              linewidth=2, transform=a.transData._b, zorder=1)
         a.add_artist(arc)
 
         # Label beta
-        a.text(observer.lon[0].value+0.1, 0.1*observer.r[0].value, "$\\beta$", horizontalalignment='left', fontsize=18) 
+        a.text(observer.lon[0].value+0.1, 0.1*observer.r[0].value, "$\\phi$", horizontalalignment='left', fontsize=18) 
         theta1 = -beta
         theta2 = 0
-        arc = mpl.patches.Arc((0, 0), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0, linewidth=2, transform=a.transData._b, zorder=1)
+        arc = mpl.patches.Arc((0, 0), 75, 75, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0,
+                              linewidth=2, transform=a.transData._b, zorder=1)
         a.add_artist(arc)
 
-        a.text(0.26, 0.95, lab, horizontalalignment='left', transform=a.transAxes, fontsize=24 ,bbox=dict(facecolor='white'))
+        a.text(0.26, 0.95, lab, horizontalalignment='left', transform=a.transAxes, fontsize=24,
+               bbox=dict(facecolor='white'))
 
     fig.subplots_adjust(left=-0.15, bottom=-0.0, right=1.15, top=0.99, wspace=-0.45)
     project_dirs = get_project_dirs()
@@ -1187,7 +1202,7 @@ def plot_kinematics_example_multi_observer():
             cme = model.cmes[0]
 
             #Track the CMEs apex kinematics
-            apex = compute_apex_profile(model, cme)
+            apex = compute_apex_profile(cme)
 
             # Observe the CME from L4 and L5
             l4obs = Observer(model, 60.0*u.deg, el_min=4.0, el_max=60.0, color='r', name='L4')
@@ -1306,7 +1321,7 @@ def plot_kinematic_example_multi_model():
             cme = model.cmes[0]
 
             #Track the CMEs apex kinematics
-            apex = compute_apex_profile(model, cme)
+            apex = compute_apex_profile(cme)
 
             # Observe the CME from L4 and L5
             l5obs = Observer(model, 300.0*u.deg, el_min=4.0, el_max=60.0, color='b', name='L5')
@@ -1407,7 +1422,6 @@ def plot_kinematics_subset():
 
             for run_key, run in scenario.items():
 
-                t = run['cme_apex/model_time'][()]
                 r = run['cme_apex/r'][()]
 
                 gm_r_path = "/".join(['observers', ok, gk,'r_apex'])
@@ -1448,7 +1462,6 @@ def plot_kinematics_subset():
         a.set_xlabel('HUXt apex (Au)')
 
     for a, gk in zip(ax[:, 0], gm_keys):
-        label = gk.upper() + ' apex (Au)'
         a.set_ylabel(gm_labels[gk])
 
     fig.subplots_adjust(left=0.085, bottom=0.05, right=0.99, top=0.99, wspace=0.015, hspace=0.015)
@@ -1714,9 +1727,7 @@ def plot_elevohi_error_violins():
     observer_lons = np.sort(data_avg['sep'].unique())
 
     labels = ['Average', 'Fast', 'Extreme']
-    colors = [mpl.cm.tab10.colors[i] for i in range(len(labels))]
     color_dict = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(labels)}
-
 
     fig, ax = plt.subplots(3, 2, figsize=(12,10))
     axr = ax.ravel()
@@ -1810,8 +1821,8 @@ def plot_elevohi_mean_errors():
     labels = ['Average', 'Fast', 'Extreme']
     colors = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(labels)}
     fmt = ['s-', 'x--', '^:']
-    for c, data in enumerate([data_avg, data_fst, data_ext]):
 
+    for c, data in enumerate([data_avg, data_fst, data_ext]):
 
         observer_lons = np.sort(data['sep'].unique())
 
@@ -1938,10 +1949,7 @@ def plot_v_bound_std_vs_geomod_err():
     sim_data = h5py.File(data_path, 'r')
 
     scenario_keys = ['average', 'fast', 'extreme']
-    colors = [mpl.cm.tab10.colors[i] for i in range(len(scenario_keys))]
     scenario_cols = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(scenario_keys)}
-    observer_lons = sim_data['average/run_000/observer_lons'][()]
-    observer_keys = ["Observer {:3.2f}".format(l) for l in observer_lons]
 
     gk = 'elp'
     ok = "Observer 300.00"
@@ -2040,14 +2048,7 @@ def plot_v_inner_std_vs_elevohi_err():
     project_dirs = get_project_dirs()
 
     scenario_keys = ['average', 'fast', 'extreme']
-    colors = [mpl.cm.tab10.colors[i] for i in range(len(scenario_keys))]
     scenario_cols = {lab:mpl.cm.tab10.colors[i] for i, lab in enumerate(scenario_keys)}
-    observer_lons = sim_data['average/run_000/observer_lons'][()]
-    observer_keys = ["Observer {:3.2f}".format(l) for l in observer_lons]
-
-    gk = 'elp'
-    ok = "Observer 300.00"
-    scale = 1*u.AU.to(u.km)
 
     fig, ax = plt.subplots(1, 3, figsize=(15,5))
 
@@ -2092,9 +2093,7 @@ def plot_v_inner_std_vs_elevohi_err():
 
         ax[i].errorbar(data_avg['v_b_std'], data_avg['mae_t'], yerr=data_sem['mae_t'], fmt='s-', color=scenario_cols[scenario], zorder=2)
 
-
-    sim_data.close()        
-
+    sim_data.close()
 
     fig.subplots_adjust(left=0.1, bottom=0.1, right=0.99, top=0.99, wspace=0.1)
 
@@ -2171,7 +2170,7 @@ def plot_kinematics_example_with_te_profile():
             cme = model.cmes[0]
 
             #Track the CMEs apex kinematics
-            apex = compute_apex_profile(model, cme)
+            apex = compute_apex_profile(cme)
 
             # Observe the CME from L4 and L5
             l4obs = Observer(model, 60.0*u.deg, el_min=4.0, el_max=60.0, color='r', name='L4')
@@ -2213,9 +2212,7 @@ def plot_kinematics_example_with_te_profile():
 
         for a in axta:
             a.set_xlim(0, t_max)
-            #a.set_ylim(30, r_max)
             a.set_xticklabels([])
-            #a.legend(loc=4, handlelength=0.5, fontsize=14)
             a.tick_params(direction='in')
 
         for a in axm:
@@ -2297,14 +2294,14 @@ if __name__ == "__main__":
 #    build_cme_scenarios()
 #    produce_huxt_ensemble(n=100)
     plot_geomodel_schematic()
-    plot_kinematics_example_multi_observer()
-    plot_kinematic_example_multi_model()
-    plot_kinematics_subset()
-    plot_error_series_and_distribution()
-    plot_error_vs_longitude()
-    plot_elevohi_error_violins()
-    plot_elevohi_mean_errors()
-    plot_elevohi_error_metrics()
-    plot_v_bound_std_vs_geomod_err()
-    plot_v_inner_std_vs_elevohi_err()
-    print_elevohi_l5_error_metrics()
+#    plot_kinematics_example_multi_observer()
+#    plot_kinematic_example_multi_model()
+#    plot_kinematics_subset()
+#    plot_error_series_and_distribution()
+#    plot_error_vs_longitude()
+#    plot_elevohi_error_violins()
+#    plot_elevohi_mean_errors()
+#    plot_elevohi_error_metrics()
+#    plot_v_bound_std_vs_geomod_err()
+#    plot_v_inner_std_vs_elevohi_err()
+#    print_elevohi_l5_error_metrics()

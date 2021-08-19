@@ -1011,7 +1011,7 @@ def plot_geomodel_schematic():
     Figure 1 of the article showing a schematic of the different classes of 
     geometric model for each CME scenario.
     """
-    
+
     cme_scenarios = load_cme_scenarios()
 
     gm_keys = ['fp', 'hm', 'sse', 'elp']
@@ -1106,6 +1106,21 @@ def plot_geomodel_schematic():
         # Add on the angles.
         a.plot([0, observer.lon[0].value], [0, observer.r[0].value], 'k-', zorder=1)
         a.plot([0, 0], [0, observer.r[0].value], 'k-', zorder=1)
+
+        cme_hw = cme_scenarios[lab.lower()]['width'].to(u.rad).value/2.0
+        a.plot([0, cme_hw], [0, 1.5*observer.r[0].value], 'k-', zorder=1)
+
+        # Label half width
+        a.text(0.5*cme_hw, 0.29*observer.r[0].value, "$\\lambda$", horizontalalignment='left', fontsize=18) 
+        theta1 = 0
+        theta2 = np.rad2deg(cme_hw)
+        arc = mpl.patches.Arc((0, 0), 150, 150, theta1=theta1, theta2=theta2, fill=False, edgecolor='k', alpha=1.0,
+                              linewidth=2, transform=a.transData._b, zorder=1)
+        a.add_artist(arc)
+
+        hw_label = "CME full width: 2$\\lambda={:3.1f}^{{\\circ}}$".format(np.rad2deg(2.0*cme_hw))
+        a.text(0.26, 0.9, hw_label, horizontalalignment='left', transform=a.transAxes, fontsize=16,
+               bbox=dict(facecolor='white'))
 
         # Label elon
         a.text(observer.lon[0].value+0.025, 0.88*observer.r[0].value, "$\\epsilon$", horizontalalignment='left',
