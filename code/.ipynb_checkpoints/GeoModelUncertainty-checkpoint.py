@@ -1218,7 +1218,7 @@ def plot_kinematics_example_multi_observer():
             t = apex['model_time'].values*u.s
             r = apex['r'].values*u.km
             v = apex['v'].values*u.km/u.s
-            id_max = r == np.nanmax(r)
+            id_max = r >= 0.999*np.nanmax(r)
             r[id_max] = np.NaN*r.unit
             v[id_max] = np.NaN*v.unit
             axm[i].plot(t.to(u.d), r.to(u.solRad), 'k-', label='Apex')
@@ -1228,6 +1228,11 @@ def plot_kinematics_example_multi_observer():
                 t = obs.sse['model_time'].values*u.s
                 r = obs.sse['r_apex'].values*u.km
                 v = obs.sse['v_apex'].values*u.km/u.s
+                
+                # remove the first velocity values due to noise in computing gradient at the edge.
+                id_first_v = np.argwhere(np.isfinite(v))[0][0]
+                v[id_first_v] = np.NaN*v.unit
+
                 axm[i].plot(t.to(u.d), r.to(u.solRad), '-', color=obs.color, label=obs.name+" SSE", linewidth=2)
                 axb[i].plot(t.to(u.d), v, '-', color=obs.color, label=obs.name+" SSE", linewidth=2)
 
@@ -1263,7 +1268,32 @@ def plot_kinematics_example_multi_observer():
         for a, lab in zip(axt, ['Average', 'Fast', 'Extreme']):
             a.text(0.25, 0.9, lab, horizontalalignment='center', transform=a.transAxes, fontsize=18 ,bbox=dict(facecolor='white'))
 
-        fig.subplots_adjust(left=0.1, bottom=0.06, right=0.99, top=0.99, wspace=0.01, hspace=0.01)
+        fig.subplots_adjust(left=0.1, bottom=0.06, right=0.99, top=0.99, wspace=0.02, hspace=0.02)
+        
+        # Add colorbar to huxt panels
+        mymap = mpl.cm.viridis
+        mymap.set_over('lightgrey')
+        mymap.set_under([0, 0, 0])
+        norm = mpl.colors.Normalize(vmin=200,vmax=800)
+        smp = mpl.cm.ScalarMappable(norm=norm, cmap=mymap)
+
+        pos = ax1.get_position()
+        dw = 0.02
+        dh = 0.02
+        left = pos.x0 - dw
+        bottom = pos.y0 + dh
+        width = 0.015
+        height = pos.height - 2*dh
+        cbaxes = fig.add_axes([left, bottom, width, height])
+        cbar = fig.colorbar(smp, cax=cbaxes, orientation='vertical', extend='both')
+
+        cbaxes.yaxis.set_ticks_position('left')
+        cbaxes.yaxis.set_label_position('left')
+        cbar.set_label('Solar Wind speed (km/s)')
+
+        ticks = np.arange(200, 810, 200)
+        labels = [str(tick) for tick in ticks]
+        cbaxes.set_yticklabels(labels, rotation=90, va='center')
         
         # Save 
         proj_dirs = get_project_dirs()        
@@ -1336,27 +1366,38 @@ def plot_kinematic_example_multi_model():
             t = apex['model_time'].values*u.s
             r = apex['r'].values*u.km
             v = apex['v'].values*u.km/u.s
-            id_max = r == np.nanmax(r)
+            # Set upper bound for presenting radius and speed, as speed gets unrealiable close to boundary.
+            id_max = r >= 0.999*np.nanmax(r)
             r[id_max] = np.NaN*r.unit
             v[id_max] = np.NaN*v.unit
-            axm[i].plot(t.to(u.d), r.to(u.solRad), 'k-', label='Apex')
-            axb[i].plot(t.to(u.d), v, 'k-', label='Apex')
+            axm[i].plot(t.to(u.d), r.to(u.solRad), 'k-', label='Apex', zorder=2)
+            axb[i].plot(t.to(u.d), v, 'k-', label='Apex', zorder=2)
 
             names = ['FP', 'HM', 'SSE', 'ELCon']
             for j, obs in enumerate([l5obs.fp, l5obs.hm, l5obs.sse, l5obs.elp]):
                 t = obs['model_time'].values*u.s
                 r = obs['r_apex'].values*u.km
                 v = obs['v_apex'].values*u.km/u.s
-                axm[i].plot(t.to(u.d), r.to(u.solRad), '-', color=Dark2_5.mpl_colors[j], label=names[j], linewidth=2)
-                axb[i].plot(t.to(u.d), v, '-', color=Dark2_5.mpl_colors[j], label=names[j], linewidth=2)
+                
+                # remove the first velocity values due to noise in computing gradient at the edge.
+                id_first_v = np.argwhere(np.isfinite(v))[0][0]
+                v[id_first_v] = np.NaN*v.unit
+
+                axm[i].plot(t.to(u.d), r.to(u.solRad), '-', color=Dark2_5.mpl_colors[j], label=names[j], linewidth=2, zorder=1)
+                axb[i].plot(t.to(u.d), v, '-', color=Dark2_5.mpl_colors[j], label=names[j], linewidth=2, zorder=1)
 
             arrival_stats = cme.compute_arrival_at_body('Earth')
             t_arr_stats.append(arrival_stats['t_transit'].value)
             r_arr_stats.append(arrival_stats['hit_rad'].value)
-
+        
         t_max = np.max(t_arr_stats)
         r_max = np.max(r_arr_stats)
         v_max = 1500
+        
+        # Fix inconvenient x-limit for plot formatting
+        if wind_type=='uniform':
+            t_max = 2.99
+        
         for a in axm:
             a.set_xlim(0, t_max)
             a.set_ylim(30, r_max)
@@ -1383,8 +1424,33 @@ def plot_kinematic_example_multi_model():
             a.text(0.25, 0.9, lab, horizontalalignment='center', transform=a.transAxes, fontsize=18 ,bbox=dict(facecolor='white'))
 
 
-        fig.subplots_adjust(left=0.1, bottom=0.06, right=0.99, top=0.99, wspace=0.01, hspace=0.01)
+        fig.subplots_adjust(left=0.1, bottom=0.06, right=0.99, top=0.99, wspace=0.02, hspace=0.02)
         
+        # Add colorbar to huxt panels
+        mymap = mpl.cm.viridis
+        mymap.set_over('lightgrey')
+        mymap.set_under([0, 0, 0])
+        norm = mpl.colors.Normalize(vmin=200,vmax=800)
+        smp = mpl.cm.ScalarMappable(norm=norm, cmap=mymap)
+
+        pos = ax1.get_position()
+        dw = 0.02
+        dh = 0.02
+        left = pos.x0 - dw
+        bottom = pos.y0 + dh
+        width = 0.015
+        height = pos.height - 2*dh
+        cbaxes = fig.add_axes([left, bottom, width, height])
+        cbar = fig.colorbar(smp, cax=cbaxes, orientation='vertical', extend='both')
+
+        cbaxes.yaxis.set_ticks_position('left')
+        cbaxes.yaxis.set_label_position('left')
+        cbar.set_label('Solar Wind speed (km/s)')
+
+        ticks = np.arange(200, 810, 200)
+        labels = [str(tick) for tick in ticks]
+        cbaxes.set_yticklabels(labels, rotation=90, va='center')
+
         # Save 
         proj_dirs = get_project_dirs()        
         fig_name = 'one_observer_all_geomods_{}.pdf'.format(wind_type)
@@ -2293,9 +2359,9 @@ if __name__ == "__main__":
     
 #    build_cme_scenarios()
 #    produce_huxt_ensemble(n=100)
-    plot_geomodel_schematic()
-#    plot_kinematics_example_multi_observer()
-#    plot_kinematic_example_multi_model()
+#    plot_geomodel_schematic()
+    plot_kinematics_example_multi_observer()
+    plot_kinematic_example_multi_model()
 #    plot_kinematics_subset()
 #    plot_error_series_and_distribution()
 #    plot_error_vs_longitude()
