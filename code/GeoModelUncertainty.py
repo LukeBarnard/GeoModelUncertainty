@@ -1210,7 +1210,7 @@ def plot_kinematics_example_multi_observer():
 
             observer_list = [l4obs, l5obs]
 
-            # Plot solution when CME gets to 100rs
+            # Plot solution when CME gets to 130rs
             id_t = np.argmin(np.abs(apex['r'] - 130*u.solRad.to(u.km)))
             plot_huxt_multi(axt[i], model.time_out[id_t], model, observer_list, add_observer=True, add_flank=True)
 
@@ -1218,7 +1218,9 @@ def plot_kinematics_example_multi_observer():
             t = apex['model_time'].values*u.s
             r = apex['r'].values*u.km
             v = apex['v'].values*u.km/u.s
-            id_max = r >= 0.999*np.nanmax(r)
+            # Remove speeds within a few grid cells of outer boundary, to remove the artificial deceleartion
+            # as front "sticks" to the outer boundary
+            id_max = r >= model.r[-5]
             r[id_max] = np.NaN*r.unit
             v[id_max] = np.NaN*v.unit
             axm[i].plot(t.to(u.d), r.to(u.solRad), 'k-', label='Apex')
@@ -1366,8 +1368,9 @@ def plot_kinematic_example_multi_model():
             t = apex['model_time'].values*u.s
             r = apex['r'].values*u.km
             v = apex['v'].values*u.km/u.s
-            # Set upper bound for presenting radius and speed, as speed gets unrealiable close to boundary.
-            id_max = r >= 0.999*np.nanmax(r)
+            # Remove speeds within a few grid cells of outer boundary, to remove the artificial deceleartion
+            # as front "sticks" to the outer boundary
+            id_max = r >= model.r[-5]
             r[id_max] = np.NaN*r.unit
             v[id_max] = np.NaN*v.unit
             axm[i].plot(t.to(u.d), r.to(u.solRad), 'k-', label='Apex', zorder=2)
@@ -1750,8 +1753,8 @@ def plot_error_vs_longitude():
             ax[0, i].errorbar(observer_lons, mean_results[j, :], yerr=mean_unc[j, :], fmt=gm_style[gk], color=gm_cols[gk], linewidth=2, label=gm_labels[gk])
             ax[1, i].errorbar(observer_lons, mean_abs_results[j, :], yerr=mean_abs_unc[j, :], fmt=gm_style[gk], color=gm_cols[gk], linewidth=2, label=gm_labels[gk])
 
-        ax[0, i].text(0.3, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[0, i].transAxes)
-        ax[1, i].text(0.3, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[1, i].transAxes)
+        ax[0, i].text(0.32, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[0, i].transAxes)
+        ax[1, i].text(0.32, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[1, i].transAxes)
 
     for a in ax.ravel():
         a.set_xlim(265, 355)
@@ -1776,13 +1779,135 @@ def plot_error_vs_longitude():
     
     # save and close
     proj_dirs = get_project_dirs()        
-    fig_name = 'err_vs_lon.pdf'
+    fig_name = 'geomod_err_vs_lon.pdf'
     fig_path = os.path.join(proj_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path, format='pdf')
     plt.close('all')
     data.close()
     return
 
+
+def plot_error_dist_vs_longitude():
+    """
+    Function to make violin plots of the error distributions for each geometric model and scenario combination.
+    """
+    data_path = "C:/Users/yq904481/research/repos/GeoModelUncertainty/data/out_data/CME_scenarios_simulation_results.hdf5"
+    data = h5py.File(data_path, 'r')
+
+    scale = 1*u.AU.to(u.km)
+    fig, ax = plt.subplots(4, 3, figsize=(12, 16))
+
+    scenario_keys = ['average', 'fast', 'extreme']
+    gm_keys = ['fp', 'hm', 'sse', 'elp']
+    gm_cols = {gk:Dark2_5.mpl_colors[i] for i, gk in enumerate(gm_keys)}
+    gm_style = {'fp':'x-', 'hm':'s-', 'sse':'^-', 'elp':'d-' }
+    gm_labels = {'fp':'FP', 'hm':'HM', 'sse':'SSE', 'elp':'ELCon'}
+    observer_lons = data['average/run_000/observer_lons'][()]
+    observer_keys = ["Observer {:3.2f}".format(l) for l in observer_lons]
+
+    for i, sk in enumerate(scenario_keys):
+
+        scenario = data[sk]
+
+        mean_results = np.zeros((len(gm_keys), len(observer_keys)))
+        mean_abs_results = np.zeros((len(gm_keys), len(observer_keys)))
+
+        mean_unc = np.zeros((len(gm_keys), len(observer_keys)))
+        mean_abs_unc = np.zeros((len(gm_keys), len(observer_keys)))
+
+        handles = []
+        for j, gk in enumerate(gm_keys):
+
+            me_groups = []
+            samples = []
+            for k, ok in enumerate(observer_keys):
+
+
+                r_path = "/".join(['cme_apex','r'])
+                rg_path = "/".join(['observers', ok, gk, 'r_apex'])
+                r_int_limit = 0.5
+                sum_err = []
+                sum_abs_err = []
+
+                for r_key, run in scenario.items():
+
+                    # Get the HUXt and GM apex distances
+                    r = run[r_path][()]/scale
+                    rg = run[rg_path][()]/scale
+
+                    # Find only the valid values in each and compute the error and absolute error
+                    id_good = np.isfinite(r) & np.isfinite(rg)
+                    r = r[id_good]
+                    rg = rg[id_good]
+                    err = rg - r
+                    abs_err = np.abs(err)
+
+                    # Integrate the errors up to r_int_limit, save to array
+                    id_sub = r <= r_int_limit
+                    err_intg = np.trapz(err[id_sub], r[id_sub])
+                    sum_err.append(err_intg)
+
+                    abs_err_intg = np.trapz(abs_err[id_sub], r[id_sub])
+                    sum_abs_err.append(abs_err_intg)
+
+                me_groups.append(sum_err)
+
+                mean_results[j, k] = np.mean(sum_err)
+                mean_abs_results[j, k] = np.mean(sum_abs_err)
+
+                mean_unc[j, k] = 2*st.sem(sum_err)
+                mean_abs_unc[j, k] = 2*st.sem(sum_abs_err)
+
+
+            h = ax[j,i].violinplot(me_groups, positions=observer_lons, widths=5, showmeans=True)
+            for pc in h['bodies']:
+                pc.set_facecolor(gm_cols[gk])
+                pc.set_edgecolor('black')
+
+            for partname in ('cbars','cmins','cmaxes','cmeans'):
+                vp = h[partname]
+                vp.set_edgecolor(gm_cols[gk])
+
+
+            ax[j, i].text(0.03, 0.92, sk.capitalize(), horizontalalignment='left', fontsize=18, transform=ax[j, i].transAxes)
+            ax[j, i].text(0.03, 0.85, gm_labels[gk], horizontalalignment='left', fontsize=18, color=gm_cols[gk], transform=ax[j, i].transAxes)
+
+
+    for a in ax.ravel():
+        a.set_xlim(265, 355)
+        a.set_ylim(-0.04, 0.055)
+        #a.set_yticks(np.arange(-0.02,0.07,0.02))
+        a.tick_params(direction='in')
+
+    # Adjust the FP ylims, as different range needed.
+    for a in ax[0,:]:
+        a.set_ylim(-0.01,0.14)
+        a.set_yticks(np.arange(0.0,0.13,0.04))
+
+    for a in ax[:-1, :].ravel():
+        a.set_xticklabels([])
+
+    for a in ax[:, 1:].ravel():
+        a.set_yticklabels([])
+
+    for a in ax[-1, :]:
+        a.set_xlabel('Observer Longitude (deg)')
+
+    for a in ax[:, 0]:
+        a.set_ylabel('Integrated error, $E$')
+
+
+    fig.subplots_adjust(left=0.1, bottom=0.035, right=0.99, top=0.99, wspace=0.02, hspace=0.02)    
+
+    # save and close
+    proj_dirs = get_project_dirs()        
+    fig_name = 'geomod_err_dist_vs_lon.pdf'
+    fig_path = os.path.join(proj_dirs['paper_figures'], fig_name)
+    fig.savefig(fig_path, format='pdf')
+    plt.close('all')
+    data.close()
+
+    
 def plot_elevohi_error_violins():
 
     project_dirs = get_project_dirs()
@@ -1822,7 +1947,6 @@ def plot_elevohi_error_violins():
         
         h = axrgt[i].violinplot(me_data, positions=observer_lons, widths=5, showmeans=True)
         me_handles.append(h)
-        
         
         # Add on sample size
         for j, ol in enumerate(observer_lons):
@@ -1870,7 +1994,7 @@ def plot_elevohi_error_violins():
     ax[2, 1].set_xlabel('Observer HEE Longitude')
 
     fig.subplots_adjust(left=0.06, bottom=0.06, right=0.93, top=0.98, hspace=0.02, wspace=0.015)
-    fig_name = 'mae_me_violins_vs_lon.pdf'
+    fig_name = 'elevohi_mae_me_violins_vs_lon.pdf'
     fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path)
     return
@@ -1921,7 +2045,7 @@ def plot_elevohi_mean_errors():
     ax[1].set_ylabel('Mean arrival time error, $\\langle \\Delta t} \\rangle$, (hours)')
 
     fig.subplots_adjust(left=0.05, bottom=0.1, right=0.93, top=0.99, wspace=0.01)
-    fig_name = 'mean_err_vs_lon.pdf'
+    fig_name = 'elevohi_mean_err_vs_lon.pdf'
     fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path)
     return
@@ -2002,7 +2126,7 @@ def plot_elevohi_error_metrics():
 
 
     fig.subplots_adjust(left=0.09, bottom=0.075, right=0.99, top=0.99, hspace=0.02)
-    fig_name = 'error_metrics_vs_lon.pdf'
+    fig_name = 'elevohi_error_metrics_vs_lon.pdf'
     fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path)
     return
@@ -2099,7 +2223,7 @@ def plot_v_bound_std_vs_geomod_err():
     fig.subplots_adjust(left=0.06, bottom=0.11, right=0.99, top=0.95, wspace=0.02)
 
     project_dirs = get_project_dirs()
-    fig_name = 'v_bound_std_vs_H.pdf'
+    fig_name = 'geomod_v_bound_std_vs_H.pdf'
     fig_path = os.path.join(project_dirs['paper_figures'], fig_name)
     fig.savefig(fig_path)
     return
@@ -2360,11 +2484,12 @@ if __name__ == "__main__":
 #    build_cme_scenarios()
 #    produce_huxt_ensemble(n=100)
 #    plot_geomodel_schematic()
-    plot_kinematics_example_multi_observer()
-    plot_kinematic_example_multi_model()
+#    plot_kinematics_example_multi_observer()
+#    plot_kinematic_example_multi_model()
 #    plot_kinematics_subset()
 #    plot_error_series_and_distribution()
 #    plot_error_vs_longitude()
+#    plot_error_dist_vs_longitude()
 #    plot_elevohi_error_violins()
 #    plot_elevohi_mean_errors()
 #    plot_elevohi_error_metrics()
