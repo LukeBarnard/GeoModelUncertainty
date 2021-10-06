@@ -23,6 +23,7 @@ The complete study should be expected to take up to 4 hours to run on a standard
 Please contact [Luke Barnard](https://github.com/lukebarnard). 
 
 ## Citation
+To cite this software, please use our Zenodo repository https://zenodo.org/badge/DOI/10.5281/zenodo.5552110.svg
 Our article based on this analysis (Barnard et al. 2021) is under review for publication in AGU's Space Weather. A preprint of our article is available from ESSOAr at [https://doi.org/10.1002/essoar.10507552.1](https://doi.org/10.1002/essoar.10507552.1).
 
 ## License
