@@ -26,5 +26,5 @@ Please contact [Luke Barnard](https://github.com/lukebarnard).
 Our article based on this analysis (Barnard et al. 2021) is under review for publication in AGU's Space Weather. A preprint of our article is available from ESSOAr at [https://doi.org/10.1002/essoar.10507552.1](https://doi.org/10.1002/essoar.10507552.1).
 
 ## License
-This work is provided under the [MIT license](LICENSE.MD).
+This work is provided under the [MIT license](LICENSE.md).
 

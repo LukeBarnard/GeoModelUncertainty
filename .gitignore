@@ -5,6 +5,7 @@
 !.gitignore
 !README.md
 !environment.yml
+!LICENSE.md
 
 # Track code but not ipython checkpoints
 !code/
